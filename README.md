@@ -211,8 +211,35 @@ is already in `laravel/.env` — keep this value, you'll paste it into the agent
 ```bash
 cd laravel
 php artisan migrate
-php artisan serve   # http://127.0.0.1:8000
+php artisan app:seed-messages   # optional: load sample data for all 3 sources
+npm install && npm run build    # build the Vite assets used by the /messages page
+php artisan serve               # http://127.0.0.1:8000
 ```
+
+Register a user at `/register` (Breeze auth), then visit `/messages` for the
+DataTables view of every ingested message across all sources. Server-side
+pagination, sorting on every column, global search box.
+
+### Messages CLI
+
+All four are registered with the same `app:*` style as the rest of the project:
+
+| Command                    | What it does                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `app:seed-messages`        | Run sample seeders. `--source=discord\|twitter\|rscplus` to limit; default seeds all three. |
+| `app:clear-messages`       | Delete messages (revisions cascade). `--source=...` to limit, `--force` to skip the prompt. |
+| `app:export-messages`      | Dump to JSON. `{path}` is a file (with `--source=`) or a directory (without). `--since=YYYY-MM-DD` to slice. |
+| `app:import-messages`      | Read a file produced by `app:export-messages` (or anything matching the ingest API shape) and replay it through the ingest pipeline. |
+
+Export/import use the **same JSON shape as the ingest API**, so a file dumped
+by one instance is directly replayable into another (or back into the same
+instance after a clear). The full export → clear → import cycle is lossless.
+
+The ingest pipeline itself lives in `app/Services/`:
+
+- `MessageIngestService` — applies a batch of create/update/delete events. Used by the API controller, the import service, and (transitively) the import command.
+- `MessageImportService` — reads a JSON file and hands it to the ingest service.
+- `MessageExportService` — dumps rows back to the same JSON shape.
 
 ### BetterDiscord plugin
 

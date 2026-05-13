@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\InviteCodeController;
+use App\Http\Controllers\MessagesController;
 use App\Http\Controllers\PasswordSecurityController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Auth;
@@ -53,6 +54,9 @@ Route::middleware('auth', '2fa')->group(function () {
     Route::post('/invite-codes/revoke-unused-invite-codes', [InviteCodeController::class, 'revokeUnusedInviteCodes'])->name('revoke-unused-invite-codes');
     Route::get('/invite-codes', [InviteCodeController::class, 'index'])->name('invite-codes-index');
     Route::get('/invite-codes/data', [InviteCodeController::class, 'data'])->name('invite-codes-data');
+
+    Route::get('/messages', [MessagesController::class, 'index'])->name('messages.index');
+    Route::get('/messages/data', [MessagesController::class, 'data'])->name('messages.data');
 });
 
 require __DIR__.'/auth.php';
