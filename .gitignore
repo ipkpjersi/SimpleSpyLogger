@@ -1,0 +1,3 @@
+# Trash bin for files we've removed but don't want to lose yet.
+# Drop anything in here you'd otherwise rm.
+_unused_files/

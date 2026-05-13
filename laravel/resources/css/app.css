@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/*@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';*/
+
+.dark p,
+.dark div {
+    color: #F3F4F6; /* text-gray-100 */
+}
+
+.no_dropdown_arrow {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: transparent;
+    position: relative;
+    padding-right: 36px;
+}
+
+.no_dropdown_arrow::after {
+    content: '\25BC';
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    color: #333;
+}
