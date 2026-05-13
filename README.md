@@ -213,7 +213,7 @@ cd laravel
 php artisan migrate
 php artisan app:seed-messages   # optional: load sample data for all 3 sources
 npm install && npm run build    # build the Vite assets used by the /messages page
-php artisan serve               # http://127.0.0.1:8000
+php artisan serve --port=6666   # http://127.0.0.1:6666
 ```
 
 Register a user at `/register` (Breeze auth), then visit `/messages` for the
@@ -247,7 +247,7 @@ Copy `sources/betterdiscord/SimpleSpyLogger.plugin.js` to `~/.config/BetterDisco
 enable it in Discord (Settings -> BetterDiscord -> Plugins), open its settings,
 and paste:
 
-- **API URL:** `http://127.0.0.1:8000/api/messages/ingest`
+- **API URL:** `http://127.0.0.1:6666/api/messages/ingest`
 - **API Token:** the `INGEST_TOKEN` from `laravel/.env`
 - *(optional)* **Excluded user IDs** / **Excluded guild IDs** — one ID per line
 
