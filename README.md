@@ -7,8 +7,10 @@ RSCPlus agents are sketched below.
 
 ```
 SimpleSpyLogger/
-  laravel/   # Laravel app (based on laravel-breeze-starter): API + migrations + models
-  plugin/    # BetterDiscord plugin agent (source = "discord")
+  laravel/                  # Laravel app (based on laravel-breeze-starter): API + migrations + models
+  sources/                  # One subfolder per agent. Folder name describes the implementation,
+    betterdiscord/          # not the `source` column value. Add more as needed:
+                            # e.g. sources/twitter-playwright/, sources/rscplus-client-mod/.
 ```
 
 ## Architecture
@@ -114,7 +116,7 @@ Response: `{ "ok": true, "stats": { "created": N, "updated": N, "deleted": N, "s
 
 ### Discord (BetterDiscord plugin) — included
 
-`plugin/SimpleSpyLogger.plugin.js`. Subscribes to Flux dispatcher
+`sources/betterdiscord/SimpleSpyLogger.plugin.js`. Subscribes to Flux dispatcher
 `MESSAGE_CREATE`/`UPDATE`/`DELETE`, looks up channel/guild metadata, and emits
 generic events with `source: "discord"`. Settings: API URL, token, batch knobs,
 **excluded user IDs**, **excluded guild IDs**, enable toggle.
@@ -214,7 +216,7 @@ php artisan serve   # http://127.0.0.1:8000
 
 ### BetterDiscord plugin
 
-Copy `plugin/SimpleSpyLogger.plugin.js` to `~/.config/BetterDiscord/plugins/`,
+Copy `sources/betterdiscord/SimpleSpyLogger.plugin.js` to `~/.config/BetterDiscord/plugins/`,
 enable it in Discord (Settings -> BetterDiscord -> Plugins), open its settings,
 and paste:
 
