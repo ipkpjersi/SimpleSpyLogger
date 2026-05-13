@@ -230,14 +230,20 @@ queue hits `maxBatchSize` (default 100).
 - Logging messages other users send you (or post in shared servers) without
   their knowledge has obvious privacy implications and is against Discord's ToS
   for self-bots / scrapers. Treat the data accordingly.
-- Same applies double for any future Twitter / RSCPlus agents — for RSCPlus
-  specifically, recording other players' private messages from an unmodified
-  client crosses well past "personal log" territory and would need to be done
-  with consent / proper authorization on a server you control.
+- Same applies to any future Twitter / RSCPlus agents. Note that the RSCPlus
+  client can only capture private messages it actually receives or sends — i.e.
+  PMs to/from you. Other players' PMs to each other are never delivered to your
+  client and so cannot be logged from this side; capturing those would require
+  a server-side hook on an OpenRSC world you operate, not a client agent. 
+  That would be beyond the scope of this project, this project is about your 
+  messages and any public messages.
+  Public/clan/trade/global chat the client does see is fair game for logging.
 - HTTP on localhost is fine; if you ever expose Laravel publicly, put it behind
   TLS and rotate the ingest token.
 
-## Folders you can delete
+## `_unused_files/` (trash bin)
 
-- `_laravel_skeleton_unused/` — bare Laravel install from the first attempt
-- `_unused_discord_specific/` — the first-cut Discord-only migrations and models, kept for reference during the refactor
+Anything we've removed but don't want to lose yet goes in `_unused_files/`.
+Gitignored at the repo root, so it stays on disk for recovery but never ends up
+in commits. To soft-delete something, `mv` it in there. To hard-delete, blow
+away the whole folder.
