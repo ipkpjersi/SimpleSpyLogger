@@ -18,6 +18,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo(fn () => route('login'));
         $middleware->redirectUsersTo(AppServiceProvider::HOME);
 
+        $middleware->web(\App\Http\Middleware\CheckIfBanned::class);
+
         $middleware->throttleApi();
 
         $middleware->alias([

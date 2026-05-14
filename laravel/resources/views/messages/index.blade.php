@@ -37,6 +37,8 @@
 
     <script type="module">
         $(document).ready(function () {
+            const initialSearch = new URLSearchParams(window.location.search).get('search') || '';
+
             function esc(s) {
                 if (s === null || s === undefined || s === '') {
                     return '<span class="text-gray-400 dark:text-gray-500">&mdash;</span>';
@@ -69,6 +71,7 @@
                 order: [[2, 'desc']],
                 pageLength: 25,
                 lengthMenu: [10, 25, 50, 100],
+                search: { search: initialSearch },
                 columns: [
                     { data: 'id', name: 'id', width: '60px' },
                     {

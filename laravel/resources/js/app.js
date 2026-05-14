@@ -9,10 +9,10 @@ Alpine.start();
 function executeSearch() {
     let type = document.getElementById('searchType').value;
     let query = document.getElementById('globalSearch').value;
-    if (type === 'option') {
-        window.location.href = '/option/?search=' + encodeURIComponent(query);
-    } else if (type === 'other') {
-        window.location.href = '/other/?search=' + encodeURIComponent(query);
+    if (type === 'messages') {
+        window.location.href = '/messages?search=' + encodeURIComponent(query);
+    } else if (type === 'users') {
+        window.location.href = '/users/?search=' + encodeURIComponent(query);
     }
 }
 

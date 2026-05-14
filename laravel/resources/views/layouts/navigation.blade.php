@@ -22,6 +22,9 @@
                         <x-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
                             {{ __('Messages') }}
                         </x-nav-link>
+                        <x-nav-link href="{{ route('users.list') }}" :active="request()->routeIs('users.list')">
+                            {{ __('Users') }}
+                        </x-nav-link>
                     @else
                         <x-nav-link :href="route('home')" :active="request()->routeIs('home')">
                             {{ __('Home') }}
@@ -47,9 +50,6 @@
                             </x-slot>
                         </x-dropdown>
                     </div>
-                    <x-nav-link href="#" :active="false">
-                        {{ __('Other') }}
-                    </x-nav-link>
                 </div>
             </div>
 
@@ -57,8 +57,8 @@
             <div class="hidden items-center space-x-4 xl:flex">
                 <input id="globalSearch" type="text" class="dark:bg-gray-800 dark:text-gray-100 rounded-md p-2" placeholder="Search...">
                 <select id="searchType" class="rounded-md p-2 dark:bg-gray-800 dark:text-gray-100 no_dropdown_arrow">
-                    <option value="option">Option</option>
-                    <option value="other">Other</option>
+                    <option value="messages">Messages</option>
+                    <option value="users">Users</option>
                 </select>
                 <button id="searchButton" class="p-2 bg-blue-500 hover:bg-blue-700 text-white rounded-md">Search</button>
             </div>
@@ -134,6 +134,12 @@
                 <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                     {{ __('Dashboard') }}
                 </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
+                    {{ __('Messages') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link href="{{ route('users.list') }}" :active="request()->routeIs('users.list')">
+                    {{ __('Users') }}
+                </x-responsive-nav-link>
             @else
                 <x-responsive-nav-link :href="route('home')" :active="request()->routeIs('home')">
                     {{ __('Home') }}
@@ -153,9 +159,6 @@
                     {{ __('Top Dropdown') }}
                 </x-responsive-nav-link>
             </div>
-            <x-responsive-nav-link href="#" :active="false">
-                {{ __('Other') }}
-            </x-responsive-nav-link>
             @if (Auth::user() == null)
                 <div class="border-t border-gray-200 dark:border-gray-700"></div>
                 <x-responsive-nav-link :href="route('login')">

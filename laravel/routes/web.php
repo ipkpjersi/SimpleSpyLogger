@@ -4,6 +4,7 @@ use App\Http\Controllers\InviteCodeController;
 use App\Http\Controllers\MessagesController;
 use App\Http\Controllers\PasswordSecurityController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -57,6 +58,11 @@ Route::middleware('auth', '2fa')->group(function () {
 
     Route::get('/messages', [MessagesController::class, 'index'])->name('messages.index');
     Route::get('/messages/data', [MessagesController::class, 'data'])->name('messages.data');
+
+    Route::get('/users/', [UserController::class, 'list'])->name('users.list');
+    Route::get('/users/getUserData', [UserController::class, 'getUserData'])->name('users.data');
+    Route::post('/users/{userId}/ban', [UserController::class, 'banUser'])->name('users.ban');
+    Route::post('/users/{userId}/unban', [UserController::class, 'unbanUser'])->name('users.unban');
 });
 
 require __DIR__.'/auth.php';

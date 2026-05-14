@@ -10,7 +10,7 @@ module.exports = class SimpleSpyLogger {
         this.api = new BdApi(meta.name);
 
         this.defaultSettings = {
-            apiUrl: "http://127.0.0.1:6666/api/messages/ingest",
+            apiUrl: "http://127.0.0.1:7000/api/messages/ingest",
             apiToken: "",
             batchIntervalMs: 5000,
             maxBatchSize: 100,
