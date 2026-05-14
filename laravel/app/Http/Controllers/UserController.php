@@ -7,19 +7,18 @@ use App\Models\User;
 use DataTables;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Auth;
 
 class UserController extends Controller
 {
     public function getUserData()
     {
+        if (! auth()->user() || ! auth()->user()->isAdmin()) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
         if (! request()->has(['start', 'length']) || request()->input('length') > 1000) {
             return response()->json(['error' => 'Invalid request'], 400);
         }
         $query = User::select('id', 'username', 'is_admin', 'is_banned', 'created_at');
-        if (Auth::user() === null || Auth::user()->is_admin !== 1) {
-            $query->where('is_banned', '0');
-        }
 
         return DataTables::of($query)
             ->editColumn('created_at', function ($user) {
@@ -30,6 +29,10 @@ class UserController extends Controller
 
     public function list()
     {
+        if (! auth()->user() || ! auth()->user()->isAdmin()) {
+            abort(404);
+        }
+
         return view('userlist');
     }
 

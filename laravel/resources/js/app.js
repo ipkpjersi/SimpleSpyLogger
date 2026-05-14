@@ -16,12 +16,19 @@ function executeSearch() {
     }
 }
 
-document.getElementById('globalSearch').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-        executeSearch();
-    }
-});
+const globalSearch = document.getElementById('globalSearch');
+const searchButton = document.getElementById('searchButton');
 
-document.getElementById('searchButton').addEventListener('click', function() {
-    executeSearch();
-});
+if (globalSearch !== null) {
+    globalSearch.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            executeSearch();
+        }
+    });
+}
+
+if (searchButton !== null) {
+    searchButton.addEventListener('click', function() {
+        executeSearch();
+    });
+}

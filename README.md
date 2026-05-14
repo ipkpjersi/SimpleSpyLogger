@@ -249,9 +249,11 @@ and paste:
 
 - **API URL:** `http://127.0.0.1:7000/api/messages/ingest`
 - **API Token:** the `INGEST_TOKEN` from `laravel/.env`
-- *(optional)* **Excluded user IDs** / **Excluded guild IDs** — one ID per line
+- *(optional)* **Included / Excluded user IDs** and **Included / Excluded guild IDs** —
+  one ID per line. If an "Included" list has entries it acts as a whitelist for that
+  dimension and the matching "Excluded" list is ignored.
 
-The plugin sends batches every `batchIntervalMs` (default 5s) or whenever the
+The plugin sends batches every `batchIntervalMs` (default 25s) or whenever the
 queue hits `maxBatchSize` (default 100).
 
 ## Heads-up

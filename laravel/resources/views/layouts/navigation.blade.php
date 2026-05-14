@@ -19,12 +19,14 @@
                         <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                             {{ __('Dashboard') }}
                         </x-nav-link>
-                        <x-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
-                            {{ __('Messages') }}
-                        </x-nav-link>
-                        <x-nav-link href="{{ route('users.list') }}" :active="request()->routeIs('users.list')">
-                            {{ __('Users') }}
-                        </x-nav-link>
+                        @if (Auth::user()->isAdmin())
+                            <x-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
+                                {{ __('Messages') }}
+                            </x-nav-link>
+                            <x-nav-link href="{{ route('users.list') }}" :active="request()->routeIs('users.list')">
+                                {{ __('Users') }}
+                            </x-nav-link>
+                        @endif
                     @else
                         <x-nav-link :href="route('home')" :active="request()->routeIs('home')">
                             {{ __('Home') }}
@@ -54,14 +56,16 @@
             </div>
 
             <!-- Global Searching -->
-            <div class="hidden items-center space-x-4 xl:flex">
-                <input id="globalSearch" type="text" class="dark:bg-gray-800 dark:text-gray-100 rounded-md p-2" placeholder="Search...">
-                <select id="searchType" class="rounded-md p-2 dark:bg-gray-800 dark:text-gray-100 no_dropdown_arrow">
-                    <option value="messages">Messages</option>
-                    <option value="users">Users</option>
-                </select>
-                <button id="searchButton" class="p-2 bg-blue-500 hover:bg-blue-700 text-white rounded-md">Search</button>
-            </div>
+            @if (Auth::user() != null && Auth::user()->isAdmin())
+                <div class="hidden items-center space-x-4 xl:flex">
+                    <input id="globalSearch" type="text" class="dark:bg-gray-800 dark:text-gray-100 rounded-md p-2" placeholder="Search...">
+                    <select id="searchType" class="rounded-md p-2 dark:bg-gray-800 dark:text-gray-100 no_dropdown_arrow">
+                        <option value="messages">Messages</option>
+                        <option value="users">Users</option>
+                    </select>
+                    <button id="searchButton" class="p-2 bg-blue-500 hover:bg-blue-700 text-white rounded-md">Search</button>
+                </div>
+            @endif
 
             <!-- Settings Dropdown -->
             @if (Auth::user() != null)
@@ -134,12 +138,14 @@
                 <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                     {{ __('Dashboard') }}
                 </x-responsive-nav-link>
-                <x-responsive-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
-                    {{ __('Messages') }}
-                </x-responsive-nav-link>
-                <x-responsive-nav-link href="{{ route('users.list') }}" :active="request()->routeIs('users.list')">
-                    {{ __('Users') }}
-                </x-responsive-nav-link>
+                @if (Auth::user()->isAdmin())
+                    <x-responsive-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
+                        {{ __('Messages') }}
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link href="{{ route('users.list') }}" :active="request()->routeIs('users.list')">
+                        {{ __('Users') }}
+                    </x-responsive-nav-link>
+                @endif
             @else
                 <x-responsive-nav-link :href="route('home')" :active="request()->routeIs('home')">
                     {{ __('Home') }}

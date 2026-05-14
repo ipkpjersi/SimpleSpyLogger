@@ -13,7 +13,12 @@ class MessageIngestController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
+        // Structural validation only. The message body has many optional
+        // fields that are intentionally not enumerated here; do NOT use the
+        // return value of validate() as the payload - it strips every key
+        // without a rule, leaving message = {external_id} only. Pass the raw
+        // input to the service, which maps fields defensively.
+        $request->validate([
             'source' => 'required|string|max:32',
             'events' => 'required|array|min:1|max:500',
             'events.*.type' => 'required|in:create,update,delete',
@@ -22,7 +27,7 @@ class MessageIngestController extends Controller
             'events.*.message.external_id' => 'required|string|max:64',
         ]);
 
-        $stats = $this->service->ingestBatch($data['source'], $data['events']);
+        $stats = $this->service->ingestBatch($request->input('source'), $request->input('events'));
 
         return response()->json(['ok' => true, 'stats' => $stats]);
     }

@@ -10,11 +10,19 @@ class MessagesController extends Controller
 {
     public function index()
     {
+        if (! auth()->user() || ! auth()->user()->isAdmin()) {
+            abort(404);
+        }
+
         return view('messages.index');
     }
 
     public function data(Request $request)
     {
+        if (! auth()->user() || ! auth()->user()->isAdmin()) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
         $query = Message::query()->select([
             'id',
             'source',
