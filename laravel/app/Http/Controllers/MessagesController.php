@@ -49,6 +49,7 @@ class MessagesController extends Controller
                 }
                 return mb_strimwidth($m->content, 0, 200, '...');
             })
+            ->escapeColumns([])
             ->make(true);
     }
 }
