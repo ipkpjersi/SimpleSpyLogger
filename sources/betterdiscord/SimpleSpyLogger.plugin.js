@@ -2,7 +2,7 @@
  * @name SimpleSpyLogger
  * @description Logs every Discord message you can see to the SimpleSpyLogger Laravel ingest API.
  * @author ken
- * @version 0.4.4
+ * @version 0.4.5
  */
 module.exports = class SimpleSpyLogger {
     constructor(meta) {
@@ -21,6 +21,8 @@ module.exports = class SimpleSpyLogger {
             excludedUserIds: "",   // newline-separated Discord user IDs
             includedGuildIds: "",  // newline-separated Discord guild IDs; if set, ONLY these are logged
             excludedGuildIds: "",  // newline-separated Discord guild IDs
+            includedChannelNames: "", // newline-separated channel names (case-insensitive); if set, ONLY these are logged
+            excludedChannelNames: "", // newline-separated channel names (case-insensitive)
         };
 
         this.queue = [];
@@ -47,6 +49,16 @@ module.exports = class SimpleSpyLogger {
             (text || "")
                 .split(/\r?\n|,/)
                 .map(s => s.trim())
+                .filter(Boolean)
+        );
+    }
+
+    // Channel names are matched case-insensitively, so the list is lowercased.
+    parseNameList(text) {
+        return new Set(
+            (text || "")
+                .split(/\r?\n|,/)
+                .map(s => s.trim().toLowerCase())
                 .filter(Boolean)
         );
     }
@@ -207,18 +219,23 @@ module.exports = class SimpleSpyLogger {
             }
         }
 
+        const channelNameLc = (channel && channel.name) ? String(channel.name).toLowerCase() : "";
+
         const includedUsers = this.parseIdList(s.includedUserIds);
         const includedGuilds = this.parseIdList(s.includedGuildIds);
         const excludedUsers = this.parseIdList(s.excludedUserIds);
         const excludedGuilds = this.parseIdList(s.excludedGuildIds);
+        const includedChannels = this.parseNameList(s.includedChannelNames);
+        const excludedChannels = this.parseNameList(s.excludedChannelNames);
 
-        // Each dimension is filtered only when the event actually has that id.
-        // A missing id (a DM has no guild, a delete stub has no author) means
-        // that filter does not apply - it never drops the event on its own.
-        // When the id is present: a non-empty "included" list acts as a
-        // whitelist (and the matching "excluded" list is ignored); otherwise
-        // the "excluded" list applies. The user lists match a message sent to
-        // OR from any listed user (author or DM recipient).
+        // Each dimension is filtered only when the event actually has that id
+        // (or, for channels, a name). A missing value (a DM has no guild or
+        // channel name, a delete stub has no author) means that filter does
+        // not apply - it never drops the event on its own. When the value is
+        // present: a non-empty "included" list acts as a whitelist (and the
+        // matching "excluded" list is ignored); otherwise the "excluded" list
+        // applies. The user lists match a message sent to OR from any listed
+        // user (author or DM recipient).
         if (userIds.size > 0) {
             if (includedUsers.size > 0) {
                 if (!this.intersects(userIds, includedUsers)) { dbg("user not in include list", "id=" + messageId); return; }
@@ -232,6 +249,14 @@ module.exports = class SimpleSpyLogger {
                 if (!includedGuilds.has(guildId)) { dbg("guild not in include list", "id=" + messageId + " guild=" + guildId); return; }
             } else if (excludedGuilds.has(guildId)) {
                 dbg("guild in exclude list", "id=" + messageId);
+                return;
+            }
+        }
+        if (channelNameLc) {
+            if (includedChannels.size > 0) {
+                if (!includedChannels.has(channelNameLc)) { dbg("channel not in include list", "id=" + messageId + " channel=" + channelNameLc); return; }
+            } else if (excludedChannels.has(channelNameLc)) {
+                dbg("channel in exclude list", "id=" + messageId);
                 return;
             }
         }
@@ -474,6 +499,8 @@ module.exports = class SimpleSpyLogger {
         root.appendChild(mkTextarea("Excluded user IDs", "excludedUserIds", "One Discord user ID per line. Messages from these users will not be logged. Ignored when Included user IDs is set."));
         root.appendChild(mkTextarea("Included guild IDs", "includedGuildIds", "One Discord guild (server) ID per line. If set, ONLY these servers are logged and the Excluded guild IDs list is ignored."));
         root.appendChild(mkTextarea("Excluded guild IDs", "excludedGuildIds", "One Discord guild (server) ID per line. Messages in these servers will not be logged. Ignored when Included guild IDs is set."));
+        root.appendChild(mkTextarea("Included channel names", "includedChannelNames", "One channel name per line (case-insensitive, no leading #). If set, ONLY these channels are logged and the Excluded channel names list is ignored. Does not apply to DMs."));
+        root.appendChild(mkTextarea("Excluded channel names", "excludedChannelNames", "One channel name per line (case-insensitive, no leading #). Messages in these channels will not be logged. Ignored when Included channel names is set. Does not apply to DMs."));
 
         const toggleWrap = document.createElement("div");
         toggleWrap.style.marginTop = "6px";
