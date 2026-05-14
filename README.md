@@ -2,8 +2,8 @@
 
 A **multi-source** chat logger with a satirical project name. A small Laravel + MySQL app exposes a single
 ingest API; one or more clients ("agents") POST messages to it from whatever
-service they can see. The first agent is a BetterDiscord plugin; Twitter and
-RSCPlus agents are sketched below.
+service they can see. The first agent is a BetterDiscord plugin; 
+RSCPlus and other agents are sketched below.
 
 ```
 SimpleSpyLogger/
@@ -16,13 +16,13 @@ SimpleSpyLogger/
 ## Architecture
 
 ```
-  BD plugin     (source=discord)
-  Twitter ext   (source=twitter)   -->  POST /api/messages/ingest  -->  MySQL
-  RSCPlus mod   (source=rscplus)
+  BD plugin      (source=discord)   -->  POST /api/messages/ingest  -->  MySQL
+  Twitter script (source=twitter)   -->  POST /api/messages/ingest  -->  MySQL
+  RSCPlus client (source=rscplus)   -->  POST /api/messages/ingest  -->  MySQL
 ```
 
 Every agent sends the **same payload shape**, distinguished only by a `source`
-string. The Laravel app doesn't know or care who's sending — it just upserts.
+string. The Laravel app doesn't know or care who's sending - it just upserts.
 
 ## Database schema
 
@@ -39,9 +39,9 @@ delete.
 | id                      | PK                                                               |
 | **source**              | `discord` / `twitter` / `rscplus` / ...                          |
 | **external_id**         | upstream-native ID; `(source, external_id)` is unique            |
-| container_external_id   | guild / world / "space" — nullable                               |
+| container_external_id   | guild / world / "space" - nullable                               |
 | container_name          | nullable                                                         |
-| channel_external_id     | channel / RSC chat-type / conversation — nullable                |
+| channel_external_id     | channel / RSC chat-type / conversation - nullable                |
 | channel_name            | nullable                                                         |
 | visibility              | `public` / `private` / `group`                                   |
 | author_external_id      | indexed                                                          |
@@ -114,14 +114,14 @@ Response: `{ "ok": true, "stats": { "created": N, "updated": N, "deleted": N, "s
 
 ## Agents
 
-### Discord (BetterDiscord plugin) — included
+### Discord (BetterDiscord plugin) - included
 
 `sources/betterdiscord/SimpleSpyLogger.plugin.js`. Subscribes to Flux dispatcher
 `MESSAGE_CREATE`/`UPDATE`/`DELETE`, looks up channel/guild metadata, and emits
 generic events with `source: "discord"`. Settings: API URL, token, batch knobs,
 **excluded user IDs**, **excluded guild IDs**, enable toggle.
 
-### Twitter — not implemented, contract below
+### Twitter - not implemented, contract below
 
 Likely shapes for a future Twitter agent (browser extension or Twitter API client):
 
@@ -156,7 +156,7 @@ Likely shapes for a future Twitter agent (browser extension or Twitter API clien
 }
 ```
 
-### RSCPlus — not implemented, contract below
+### RSCPlus - not implemented, contract below
 
 OpenRSC chat is split into channel "types" (public, private, clan, trade,
 dueling) per world. A future agent would hook the chat dispatch path in the
@@ -206,7 +206,7 @@ CREATE DATABASE simple_spy_logger CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_
 ### Laravel
 
 `composer install` and `php artisan key:generate` already done. `INGEST_TOKEN`
-is already in `laravel/.env` — keep this value, you'll paste it into the agent.
+is already in `laravel/.env` - keep this value, you'll paste it into the agent.
 
 ```bash
 cd laravel
@@ -233,13 +233,13 @@ All four are registered with the same `app:*` style as the rest of the project:
 
 Export/import use the **same JSON shape as the ingest API**, so a file dumped
 by one instance is directly replayable into another (or back into the same
-instance after a clear). The full export → clear → import cycle is lossless.
+instance after a clear). The full export -> clear -> import cycle is lossless.
 
 The ingest pipeline itself lives in `app/Services/`:
 
-- `MessageIngestService` — applies a batch of create/update/delete events. Used by the API controller, the import service, and (transitively) the import command.
-- `MessageImportService` — reads a JSON file and hands it to the ingest service.
-- `MessageExportService` — dumps rows back to the same JSON shape.
+- `MessageIngestService` - applies a batch of create/update/delete events. Used by the API controller, the import service, and (transitively) the import command.
+- `MessageImportService` - reads a JSON file and hands it to the ingest service.
+- `MessageExportService` - dumps rows back to the same JSON shape.
 
 ### BetterDiscord plugin
 
@@ -249,7 +249,7 @@ and paste:
 
 - **API URL:** `http://127.0.0.1:7000/api/messages/ingest`
 - **API Token:** the `INGEST_TOKEN` from `laravel/.env`
-- *(optional)* **Included / Excluded user IDs** and **Included / Excluded guild IDs** —
+- *(optional)* **Included / Excluded user IDs** and **Included / Excluded guild IDs** -
   one ID per line. If an "Included" list has entries it acts as a whitelist for that
   dimension and the matching "Excluded" list is ignored.
 
@@ -262,7 +262,7 @@ queue hits `maxBatchSize` (default 100).
   their knowledge has obvious privacy implications and is against Discord's ToS
   for self-bots / scrapers. Treat the data accordingly.
 - Same applies to any future Twitter / RSCPlus agents. Note that the RSCPlus
-  client can only capture private messages it actually receives or sends — i.e.
+  client can only capture private messages it actually receives or sends - i.e.
   PMs to/from you. Other players' PMs to each other are never delivered to your
   client and so cannot be logged from this side; capturing those would require
   a server-side hook on an OpenRSC world you operate, not a client agent. 
