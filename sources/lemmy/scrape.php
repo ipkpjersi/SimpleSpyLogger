@@ -122,7 +122,7 @@ $capturedAt = date('Y-m-d H:i:s');
 $totalInserted = 0;
 
 foreach ($usernames as $username) {
-    $base = $instance.'/api/v3/user/?username='.urlencode($username).'&limit='.$perPage;
+    $base = $instance.'/api/v3/user/?username='.urlencode($username).'&sort=New&limit='.$perPage;
 
     $first = fetch_json($base.'&page=1');
     if ($first === null || ! isset($first['person_view'])) {
