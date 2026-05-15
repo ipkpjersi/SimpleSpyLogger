@@ -10,7 +10,7 @@ SimpleSpyLogger/
   laravel/                  # Laravel app (based on laravel-breeze-starter): API + migrations + models
   sources/                  # One subfolder per agent. Folder name describes the implementation,
     betterdiscord/          # not the `source` column value. Add more as needed:
-                            # e.g. sources/twitter-playwright/, sources/rscplus-client-mod/.
+                            # e.g. sources/twitter/, sources/rscplus/.
 ```
 
 ## Architecture
@@ -21,8 +21,10 @@ SimpleSpyLogger/
   RSCPlus client (source=rscplus)   -->  POST /api/messages/ingest  -->  MySQL
 ```
 
-Every agent sends the **same payload shape**, distinguished only by a `source`
-string. The Laravel app doesn't know or care who's sending - it just upserts.
+Every agent sends the **same payload shape**, distinguished only by a `source` string identifying the app. 
+The Laravel site doesn't know or care who's sending data - it just upserts the data to our db.
+We could technically make most agents run within the Laravel site itself, but having them be
+standalone makes them not require having Laravel installed to run which is helpful.
 
 ## Database schema
 
