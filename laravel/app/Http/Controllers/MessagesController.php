@@ -71,6 +71,10 @@ class MessagesController extends Controller
         ]);
 
         return DataTables::of($query)
+            // RSCPlus rows share one sent_at per session (the log only carries
+            // a session-start timestamp), so add id as a tiebreaker to keep
+            // them in file order under ties.
+            ->orderColumn('sent_at', 'sent_at $1, id $1')
             ->editColumn('sent_at', function ($m) {
                 return $m->sent_at?->format('Y-m-d H:i:s');
             })

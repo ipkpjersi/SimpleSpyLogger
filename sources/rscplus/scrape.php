@@ -166,7 +166,7 @@ foreach ($lines as $i => $raw) {
     [$channelId, $channelName, $visibility] = $channels[$type];
 
     // Stable per (log file, line) so re-runs on the same/growing file are idempotent.
-    $externalId = $world.':'.sha1($logName.'#'.$lineNo.'#'.$raw);
+    $externalId = $world.':'.hash('sha256', $logName.'#'.$lineNo.'#'.$raw);
 
     $payload = json_encode(array_filter([
         'log_file' => $logName,
