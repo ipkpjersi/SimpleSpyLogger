@@ -16,7 +16,6 @@ class RscplusSampleSeeder extends Seeder
 
         $worlds = [
             'preservation' => 'Preservation',
-            'cabbage' => 'Cabbage',
         ];
 
         // chat type -> visibility
@@ -55,10 +54,6 @@ class RscplusSampleSeeder extends Seeder
             ['preservation', 'clan',   'Vagus',               "ill watch from the stands lol",                 235, ['clan' => 'Pythons']],
             ['preservation', 'dueling','Ken',                 "wanna stake 100k no armor?",                    180, ['recipient' => 'Vagus']],
             ['preservation', 'dueling','Vagus',               "make it 250k",                                  179, ['recipient' => 'Ken']],
-            ['cabbage',      'public', 'Zezima',              "cabbage chops? best world for fast 99 wc",      120, ['x' => 100, 'y' => 200]],
-            ['cabbage',      'public', 'Ken',                 "yeah cabbage hands down",                       118, ['x' => 102, 'y' => 199]],
-            ['cabbage',      'global', 'ThePythonAtePotato',  "anyone seen the new ardy update?",              100, []],
-            ['cabbage',      'public', 'Vagus',               "rofl that lag was insane",                       60, ['x' => 110, 'y' => 205]],
             ['preservation', 'public', 'Ken',                 "gz on the 99",                                   20, ['x' => 220, 'y' => 451]],
             ['preservation', 'public', 'Zezima',              "ty :)",                                          19, ['x' => 220, 'y' => 451]],
         ];

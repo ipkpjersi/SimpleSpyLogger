@@ -47,6 +47,8 @@
     </div>
 
     <script type="module">
+        import '/js/jquery.dataTables.yadcf.js';
+
         $(document).ready(function () {
             const initialSearch = new URLSearchParams(window.location.search).get('search') || '';
 
@@ -145,6 +147,39 @@
                     },
                 ],
             });
+
+            yadcf.init(table, [
+                {
+                    column_number: 1,
+                    filter_type: 'select',
+                    data: @json($filters['source']),
+                    filter_default_label: 'Source',
+                },
+                {
+                    column_number: 3,
+                    filter_type: 'select',
+                    data: @json($filters['container']),
+                    filter_default_label: 'Container',
+                },
+                {
+                    column_number: 4,
+                    filter_type: 'select',
+                    data: @json($filters['channel']),
+                    filter_default_label: 'Channel',
+                },
+                {
+                    column_number: 5,
+                    filter_type: 'select',
+                    data: @json($filters['author']),
+                    filter_default_label: 'Author',
+                },
+                {
+                    column_number: 6,
+                    filter_type: 'select',
+                    data: @json($filters['visibility']),
+                    filter_default_label: 'Visibility',
+                },
+            ]);
 
             $('#messagesTable tbody').on('click', '.ssl-content', function () {
                 const rowData = table.row($(this).closest('tr')).data();

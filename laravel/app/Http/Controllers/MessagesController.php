@@ -14,7 +14,25 @@ class MessagesController extends Controller
             abort(404);
         }
 
-        return view('messages.index');
+        $distinct = function (string $column) {
+            return Message::query()
+                ->whereNotNull($column)
+                ->where($column, '!=', '')
+                ->distinct()
+                ->orderBy($column)
+                ->pluck($column)
+                ->values();
+        };
+
+        $filters = [
+            'source' => $distinct('source'),
+            'container' => $distinct('container_name'),
+            'channel' => $distinct('channel_name'),
+            'author' => $distinct('author_username'),
+            'visibility' => $distinct('visibility'),
+        ];
+
+        return view('messages.index', compact('filters'));
     }
 
     public function data(Request $request)
