@@ -43,13 +43,18 @@ class MessagesController extends Controller
             ->editColumn('sent_at', function ($m) {
                 return $m->sent_at?->format('Y-m-d H:i:s');
             })
-            ->editColumn('content', function ($m) {
-                if ($m->content === null) {
-                    return null;
-                }
-                return mb_strimwidth($m->content, 0, 200, '...');
-            })
             ->escapeColumns([])
             ->make(true);
+    }
+
+    public function destroy(Message $message)
+    {
+        if (! auth()->user() || ! auth()->user()->isAdmin()) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $message->delete();
+
+        return response()->json(['message' => 'Message deleted successfully']);
     }
 }

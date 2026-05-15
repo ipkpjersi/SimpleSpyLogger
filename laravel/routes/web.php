@@ -58,6 +58,7 @@ Route::middleware('auth', '2fa')->group(function () {
 
     Route::get('/messages', [MessagesController::class, 'index'])->name('messages.index');
     Route::get('/messages/data', [MessagesController::class, 'data'])->name('messages.data');
+    Route::post('/messages/{message}/delete', [MessagesController::class, 'destroy'])->name('messages.destroy');
 
     Route::get('/users/', [UserController::class, 'list'])->name('users.list');
     Route::get('/users/getUserData', [UserController::class, 'getUserData'])->name('users.data');
