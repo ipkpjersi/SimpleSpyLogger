@@ -11,7 +11,7 @@
 
     <div class="py-12">
         <div class="max-w-full mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
+            <div class="bg-white dark:bg-gray-800 overflow-x-auto shadow-sm sm:rounded-lg">
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
                         All ingested messages across every source. Use the search box for a global filter; click column headers to sort. Pagination is server-side. Hover a message to preview it, or click it to open the full content.
@@ -69,9 +69,9 @@
                     return '<span class="text-gray-400 dark:text-gray-500">&mdash;</span>';
                 }
                 const full = String(data);
-                const truncated = full.length > 200 ? full.slice(0, 200) + '...' : full;
+                const truncated = full.length > 150 ? full.slice(0, 150) + '...' : full;
                 // full is non-empty here, so esc() escapes it for the title attribute too.
-                return '<span class="ssl-content cursor-pointer hover:underline" title="' + esc(full) + '">' + esc(truncated) + '</span>';
+                return '<span class="ssl-content cursor-pointer hover:underline" style="display:inline-block;max-width:32rem;vertical-align:top;white-space:normal;word-break:break-word;overflow-wrap:anywhere;" title="' + esc(full) + '">' + esc(truncated) + '</span>';
             }
 
             const modal = document.getElementById('messageModal');
@@ -111,6 +111,15 @@
                 });
             }
 
+            function buildPlainOptions(values, maxLen) {
+                return values.map(function (v) {
+                    const s = String(v);
+                    return s.length > maxLen
+                        ? { value: s, label: s.slice(0, maxLen) + '...' }
+                        : s;
+                });
+            }
+
             const sourceClasses = {
                 discord: 'bg-indigo-600',
                 twitter: 'bg-sky-500',
@@ -141,7 +150,13 @@
                     },
                     { data: 'sent_at', name: 'sent_at', width: '160px' },
                     { data: 'container_name', name: 'container_name', render: esc },
-                    { data: 'channel_name', name: 'channel_name', render: esc },
+                    {
+                        data: 'channel_name', name: 'channel_name',
+                        render: function (d) {
+                            if (d === null || d === undefined || d === '') return '';
+                            return '<span style="display:inline-block;max-width:18rem;vertical-align:top;white-space:normal;word-break:break-word;overflow-wrap:anywhere;" title="' + esc(String(d)) + '">' + esc(String(d)) + '</span>';
+                        },
+                    },
                     { data: 'author_username', name: 'author_username', render: esc },
                     {
                         data: 'visibility', name: 'visibility', width: '90px',
@@ -169,19 +184,19 @@
                 {
                     column_number: 3,
                     filter_type: 'select',
-                    data: buildSourcedOptions(@json($filters['container']), 25),
+                    data: buildSourcedOptions(@json($filters['container']), 20),
                     filter_default_label: 'Container',
                 },
                 {
                     column_number: 4,
                     filter_type: 'select',
-                    data: buildSourcedOptions(@json($filters['channel']), 25),
+                    data: buildSourcedOptions(@json($filters['channel']), 20),
                     filter_default_label: 'Channel',
                 },
                 {
                     column_number: 5,
                     filter_type: 'select',
-                    data: @json($filters['author']),
+                    data: buildPlainOptions(@json($filters['author']), 20),
                     filter_default_label: 'Author',
                 },
                 {
