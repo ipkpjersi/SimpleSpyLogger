@@ -2,3 +2,7 @@
 # Drop anything in here you'd otherwise rm.
 _unused_files/
 .codex
+
+# Per-scraper credentials. Each sources/<scraper>/ keeps its own .env;
+# .env.example in the same folder is committed as the template.
+sources/*/.env
