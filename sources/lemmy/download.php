@@ -9,7 +9,7 @@
  * A Lemmy comment is mapped as: community -> container, post -> channel,
  * commenter -> author.
  *
- * Usage: php scrape.php
+ * Usage: php download.php
  */
 
 $root = __DIR__;

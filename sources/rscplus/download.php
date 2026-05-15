@@ -14,7 +14,7 @@
  * RSCPlus chat logs have no per-line timestamps, so sent_at is taken from the
  * session-start time encoded in the log filename.
  *
- * Usage: php scrape.php [/path/to/logs/dir]
+ * Usage: php download.php [/path/to/logs/dir]
  *   The optional argument overrides RSCPLUS_LOGS_DIR from .env.
  */
 
