@@ -174,7 +174,7 @@ class MessageIngestService
             return null;
         }
         try {
-            return Carbon::parse($value);
+            return Carbon::parse($value)->setTimezone(config('app.timezone'));
         } catch (\Throwable $e) {
             return null;
         }
