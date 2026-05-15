@@ -14,6 +14,8 @@
 
 $root = __DIR__;
 
+require_once __DIR__.'/../notifier.php';
+
 function load_env(string $path): array
 {
     if (! is_file($path)) {
@@ -41,8 +43,10 @@ function load_env(string $path): array
     return $env;
 }
 
-function fetch_json(string $url): ?array
+function fetch_json(string $url, ?string &$error = null, ?string &$bodyExcerpt = null): ?array
 {
+    $error = null;
+    $bodyExcerpt = null;
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -53,7 +57,8 @@ function fetch_json(string $url): ?array
     ]);
     $body = curl_exec($ch);
     if ($body === false) {
-        fwrite(STDERR, 'Curl error: '.curl_error($ch)."\n");
+        $error = 'curl: '.curl_error($ch);
+        fwrite(STDERR, $error."\n");
         curl_close($ch);
 
         return null;
@@ -61,13 +66,22 @@ function fetch_json(string $url): ?array
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
     if ($code >= 400) {
+        $error = "HTTP $code";
+        $bodyExcerpt = mb_substr((string) $body, 0, 300);
         fwrite(STDERR, "HTTP $code for $url\n");
 
         return null;
     }
     $data = json_decode($body, true);
+    if (! is_array($data)) {
+        $error = 'JSON parse failure';
+        $bodyExcerpt = mb_substr((string) $body, 0, 300);
+        fwrite(STDERR, "$error for $url\n");
 
-    return is_array($data) ? $data : null;
+        return null;
+    }
+
+    return $data;
 }
 
 $env = load_env($root.'/.env');
@@ -120,13 +134,24 @@ $insert = $pdo->prepare(
 
 $capturedAt = date('Y-m-d H:i:s');
 $totalInserted = 0;
+$failures = [];
 
 foreach ($usernames as $username) {
     $base = $instance.'/api/v3/user/?username='.urlencode($username).'&sort=New&limit='.$perPage;
 
-    $first = fetch_json($base.'&page=1');
+    $firstUrl = $base.'&page=1';
+    $err = null;
+    $bodyExcerpt = null;
+    $first = fetch_json($firstUrl, $err, $bodyExcerpt);
     if ($first === null || ! isset($first['person_view'])) {
-        fwrite(STDERR, "Skipping '$username': no person_view in API response\n");
+        $reason = $err ?? 'no person_view in API response';
+        fwrite(STDERR, "Skipping '$username': $reason\n");
+        $failures[] = [
+            'username' => $username,
+            'url' => $firstUrl,
+            'error' => $reason,
+            'body_excerpt' => $bodyExcerpt ?? '',
+        ];
         continue;
     }
 
@@ -214,3 +239,21 @@ foreach ($usernames as $username) {
 }
 
 echo "Lemmy: inserted $totalInserted new comments total.\n";
+
+if ($failures) {
+    $total = count($usernames);
+    $failed = count($failures);
+    $subject = "SimpleSpyLogger lemmy scraper: $failed/$total users failed to fetch";
+    $lines = ["$failed of $total users failed to fetch on $capturedAt:", ''];
+    foreach ($failures as $f) {
+        $lines[] = $f['username'].':';
+        $lines[] = '  URL:   '.$f['url'];
+        $lines[] = '  Error: '.$f['error'];
+        if ($f['body_excerpt'] !== '') {
+            $lines[] = '  Body excerpt: '.preg_replace('/\s+/', ' ', $f['body_excerpt']);
+        }
+        $lines[] = '';
+    }
+    send_alert($env, $subject, implode("\n", $lines));
+    exit($failed === $total ? 1 : 0);
+}

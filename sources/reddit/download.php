@@ -2,20 +2,27 @@
 /**
  * SimpleSpyLogger - Reddit comment scraper
  *
- * Fetches every accessible comment for the configured Reddit user(s) via
- * the official OAuth API and inserts them into the SimpleSpyLogger
- * messages table via PDO.
+ * Fetches the latest comments for the configured Reddit user(s) via the
+ * public JSON endpoint (no OAuth). Recommended to run no more than twice
+ * a day to stay polite with Reddit's anonymous rate limits.
+ * 
+ * Endpoints available by Reddit:
+ * https://www.reddit.com/user/username.json
+ * https://www.reddit.com/user/username.rss
  *
  * A Reddit comment is mapped as: subreddit -> container, post -> channel,
  * commenter -> author.
  *
- * Reddit listings cap at ~1000 most recent items per user; older comments
- * cannot be retrieved through this endpoint.
+ * Single request per user per run, returning the most recent
+ * REDDIT_PER_PAGE comments (up to 100). No pagination; full historical
+ * backfill beyond the first page is not supported here.
  *
  * Usage: php download.php
  */
 
 $root = __DIR__;
+
+require_once __DIR__.'/../notifier.php';
 
 function load_env(string $path): array
 {
@@ -44,22 +51,16 @@ function load_env(string $path): array
     return $env;
 }
 
-function http_request(string $method, string $url, array $headers, ?string $body, string $userAgent): array
+function http_get(string $url, string $userAgent): array
 {
     $ch = curl_init($url);
-    $opts = [
+    curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS => 10,
         CURLOPT_TIMEOUT => 30,
         CURLOPT_USERAGENT => $userAgent,
-        CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_CUSTOMREQUEST => $method,
-    ];
-    if ($body !== null) {
-        $opts[CURLOPT_POSTFIELDS] = $body;
-    }
-    curl_setopt_array($ch, $opts);
+    ]);
     $resp = curl_exec($ch);
     if ($resp === false) {
         $err = curl_error($ch);
@@ -73,34 +74,10 @@ function http_request(string $method, string $url, array $headers, ?string $body
     return ['ok' => $code < 400, 'code' => $code, 'body' => (string) $resp, 'error' => null];
 }
 
-function get_oauth_token(string $clientId, string $clientSecret, string $userAgent): ?string
-{
-    $resp = http_request(
-        'POST',
-        'https://www.reddit.com/api/v1/access_token',
-        [
-            'Authorization: Basic '.base64_encode($clientId.':'.$clientSecret),
-            'Content-Type: application/x-www-form-urlencoded',
-        ],
-        'grant_type=client_credentials',
-        $userAgent
-    );
-    if (! $resp['ok']) {
-        fwrite(STDERR, "OAuth token request failed (HTTP {$resp['code']}): {$resp['body']}\n");
-
-        return null;
-    }
-    $data = json_decode($resp['body'], true);
-
-    return is_array($data) && isset($data['access_token']) ? (string) $data['access_token'] : null;
-}
-
 $env = load_env($root.'/.env');
 
 date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
 
-$clientId = $env['REDDIT_CLIENT_ID'] ?? '';
-$clientSecret = $env['REDDIT_CLIENT_SECRET'] ?? '';
 $userAgent = $env['REDDIT_USER_AGENT'] ?? 'SimpleSpyLogger-RedditScraper/1.0';
 $usernames = array_filter(array_map('trim', explode(',', $env['REDDIT_TARGET_USERNAMES'] ?? '')));
 $perPage = (int) ($env['REDDIT_PER_PAGE'] ?? 100);
@@ -108,8 +85,8 @@ if ($perPage < 1 || $perPage > 100) {
     $perPage = 100;
 }
 
-if ($clientId === '' || $clientSecret === '' || ! $usernames) {
-    fwrite(STDERR, "REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, and REDDIT_TARGET_USERNAMES must be set in .env\n");
+if (! $usernames) {
+    fwrite(STDERR, "REDDIT_TARGET_USERNAMES must be set in .env\n");
     exit(1);
 }
 
@@ -125,12 +102,6 @@ try {
     ]);
 } catch (PDOException $e) {
     fwrite(STDERR, 'DB connection failed: '.$e->getMessage()."\n");
-    exit(1);
-}
-
-$token = get_oauth_token($clientId, $clientSecret, $userAgent);
-if ($token === null) {
-    fwrite(STDERR, "Failed to obtain Reddit OAuth token.\n");
     exit(1);
 }
 
@@ -152,102 +123,113 @@ $insert = $pdo->prepare(
 $capturedAt = date('Y-m-d H:i:s');
 $host = 'reddit.com';
 $totalInserted = 0;
+$userIndex = 0;
+$failures = [];
 
 foreach ($usernames as $username) {
-    $after = null;
+    if ($userIndex++ > 0) {
+        // Be polite to Reddit's anonymous endpoint between users.
+        sleep(1);
+    }
+
+    $url = 'https://www.reddit.com/user/'.urlencode($username)
+        .'/comments.json?limit='.$perPage.'&sort=new&raw_json=1';
+
+    $resp = http_get($url, $userAgent);
+    if (! $resp['ok']) {
+        $err = $resp['error'] !== null ? 'curl: '.$resp['error'] : 'HTTP '.$resp['code'];
+        fwrite(STDERR, "$err for $url\n");
+        $failures[] = [
+            'username' => $username,
+            'url' => $url,
+            'error' => $err,
+            'body_excerpt' => $resp['body'] !== null ? mb_substr((string) $resp['body'], 0, 300) : '',
+        ];
+        continue;
+    }
+
+    $data = json_decode($resp['body'], true);
+    if (! is_array($data)) {
+        fwrite(STDERR, "JSON parse failure for $url\n");
+        $failures[] = [
+            'username' => $username,
+            'url' => $url,
+            'error' => 'JSON parse failure',
+            'body_excerpt' => mb_substr((string) $resp['body'], 0, 300),
+        ];
+        continue;
+    }
+    $children = $data['data']['children'] ?? [];
+    if (! is_array($children) || ! $children) {
+        echo "Reddit: $username - 0 comments fetched, 0 new.\n";
+        continue;
+    }
+
     $fetched = 0;
     $insertedForUser = 0;
 
-    while (true) {
-        $url = 'https://oauth.reddit.com/user/'.urlencode($username)
-            .'/comments?limit='.$perPage.'&sort=new&raw_json=1';
-        if ($after !== null) {
-            $url .= '&after='.urlencode($after);
+    foreach ($children as $child) {
+        if (($child['kind'] ?? null) !== 't1' || empty($child['data']['id'])) {
+            continue;
+        }
+        $c = $child['data'];
+        $fetched++;
+
+        $externalId = $host.':t1_'.$c['id'];
+
+        $parentId = $c['parent_id'] ?? null;
+        $referenced = null;
+        if (is_string($parentId) && strpos($parentId, 't1_') === 0) {
+            $referenced = $host.':'.$parentId;
         }
 
-        $resp = http_request('GET', $url, ['Authorization: Bearer '.$token], null, $userAgent);
-        if (! $resp['ok']) {
-            fwrite(STDERR, "HTTP {$resp['code']} for $url\n");
-            break;
+        $editedAt = null;
+        if (isset($c['edited']) && is_numeric($c['edited'])) {
+            $editedAt = date('Y-m-d H:i:s', (int) $c['edited']);
         }
 
-        $data = json_decode($resp['body'], true);
-        $children = $data['data']['children'] ?? [];
-        if (! is_array($children) || ! $children) {
-            break;
+        $isDeleted = (($c['author'] ?? '') === '[deleted]')
+            || in_array($c['body'] ?? '', ['[deleted]', '[removed]'], true);
+
+        $payload = json_encode([
+            'permalink' => $c['permalink'] ?? null,
+            'score' => $c['score'] ?? null,
+            'controversiality' => $c['controversiality'] ?? null,
+            'distinguished' => $c['distinguished'] ?? null,
+            'stickied' => $c['stickied'] ?? null,
+            'subreddit_type' => $c['subreddit_type'] ?? null,
+            'subreddit_id' => $c['subreddit_id'] ?? null,
+            'link_id' => $c['link_id'] ?? null,
+            'link_permalink' => $c['link_permalink'] ?? null,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        try {
+            $insert->execute([
+                ':source' => 'reddit',
+                ':external_id' => $externalId,
+                ':container_external_id' => $c['subreddit_id'] ?? null,
+                ':container_name' => $c['subreddit'] ?? null,
+                ':channel_external_id' => $c['link_id'] ?? null,
+                ':channel_name' => $c['link_title'] ?? null,
+                ':visibility' => 'public',
+                ':author_external_id' => $c['author_fullname'] ?? null,
+                ':author_username' => (string) ($c['author'] ?? ''),
+                ':author_display_name' => null,
+                ':author_bot' => 0,
+                ':content' => $c['body'] ?? null,
+                ':referenced_external_id' => $referenced,
+                ':sent_at' => isset($c['created_utc']) ? date('Y-m-d H:i:s', (int) $c['created_utc']) : null,
+                ':source_edited_at' => $editedAt,
+                ':deleted_at' => $isDeleted ? $capturedAt : null,
+                ':captured_at' => $capturedAt,
+                ':payload' => $payload,
+                ':created_at' => $capturedAt,
+                ':updated_at' => $capturedAt,
+            ]);
+            $insertedForUser += $insert->rowCount();
+        } catch (PDOException $e) {
+            fwrite(STDERR, "Skipped comment {$c['id']}: ".$e->getMessage()."\n");
         }
-
-        foreach ($children as $child) {
-            if (($child['kind'] ?? null) !== 't1' || empty($child['data']['id'])) {
-                continue;
-            }
-            $c = $child['data'];
-            $fetched++;
-
-            $externalId = $host.':t1_'.$c['id'];
-
-            $parentId = $c['parent_id'] ?? null;
-            $referenced = null;
-            if (is_string($parentId) && strpos($parentId, 't1_') === 0) {
-                $referenced = $host.':'.$parentId;
-            }
-
-            $editedAt = null;
-            if (isset($c['edited']) && is_numeric($c['edited'])) {
-                $editedAt = date('Y-m-d H:i:s', (int) $c['edited']);
-            }
-
-            $isDeleted = (($c['author'] ?? '') === '[deleted]')
-                || in_array($c['body'] ?? '', ['[deleted]', '[removed]'], true);
-
-            $payload = json_encode([
-                'permalink' => $c['permalink'] ?? null,
-                'score' => $c['score'] ?? null,
-                'controversiality' => $c['controversiality'] ?? null,
-                'distinguished' => $c['distinguished'] ?? null,
-                'stickied' => $c['stickied'] ?? null,
-                'subreddit_type' => $c['subreddit_type'] ?? null,
-                'subreddit_id' => $c['subreddit_id'] ?? null,
-                'link_id' => $c['link_id'] ?? null,
-                'link_permalink' => $c['link_permalink'] ?? null,
-            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-            try {
-                $insert->execute([
-                    ':source' => 'reddit',
-                    ':external_id' => $externalId,
-                    ':container_external_id' => $c['subreddit_id'] ?? null,
-                    ':container_name' => $c['subreddit'] ?? null,
-                    ':channel_external_id' => $c['link_id'] ?? null,
-                    ':channel_name' => $c['link_title'] ?? null,
-                    ':visibility' => 'public',
-                    ':author_external_id' => $c['author_fullname'] ?? null,
-                    ':author_username' => (string) ($c['author'] ?? ''),
-                    ':author_display_name' => null,
-                    ':author_bot' => 0,
-                    ':content' => $c['body'] ?? null,
-                    ':referenced_external_id' => $referenced,
-                    ':sent_at' => isset($c['created_utc']) ? date('Y-m-d H:i:s', (int) $c['created_utc']) : null,
-                    ':source_edited_at' => $editedAt,
-                    ':deleted_at' => $isDeleted ? $capturedAt : null,
-                    ':captured_at' => $capturedAt,
-                    ':payload' => $payload,
-                    ':created_at' => $capturedAt,
-                    ':updated_at' => $capturedAt,
-                ]);
-                $insertedForUser += $insert->rowCount();
-            } catch (PDOException $e) {
-                fwrite(STDERR, "Skipped comment {$c['id']}: ".$e->getMessage()."\n");
-            }
-        }
-
-        $after = $data['data']['after'] ?? null;
-        if (! is_string($after) || $after === '') {
-            break;
-        }
-
-        // Polite pacing for Reddit's 100 QPM free-tier limit.
-        usleep(500_000);
     }
 
     echo "Reddit: $username - $fetched comments fetched, $insertedForUser new.\n";
@@ -255,3 +237,21 @@ foreach ($usernames as $username) {
 }
 
 echo "Reddit: inserted $totalInserted new comments total.\n";
+
+if ($failures) {
+    $total = count($usernames);
+    $failed = count($failures);
+    $subject = "SimpleSpyLogger reddit scraper: $failed/$total users failed to fetch";
+    $lines = ["$failed of $total users failed to fetch on $capturedAt:", ''];
+    foreach ($failures as $f) {
+        $lines[] = $f['username'].':';
+        $lines[] = '  URL:   '.$f['url'];
+        $lines[] = '  Error: '.$f['error'];
+        if ($f['body_excerpt'] !== '') {
+            $lines[] = '  Body excerpt: '.preg_replace('/\s+/', ' ', $f['body_excerpt']);
+        }
+        $lines[] = '';
+    }
+    send_alert($env, $subject, implode("\n", $lines));
+    exit($failed === $total ? 1 : 0);
+}
