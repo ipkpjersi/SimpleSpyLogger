@@ -120,6 +120,12 @@ $insert = $pdo->prepare(
          :deleted_at, :captured_at, :payload, :created_at, :updated_at)'
 );
 
+// Randomize the start within the cron window so requests don't land on the
+// minute hand. Range: 60s - 38m.
+$startDelay = random_int(60, 38 * 60);
+echo "Reddit: waiting {$startDelay}s before first fetch.\n";
+sleep($startDelay);
+
 $capturedAt = date('Y-m-d H:i:s');
 $host = 'reddit.com';
 $totalInserted = 0;
@@ -128,8 +134,11 @@ $failures = [];
 
 foreach ($usernames as $username) {
     if ($userIndex++ > 0) {
-        // Be polite to Reddit's anonymous endpoint between users.
-        sleep(1);
+        // Random pause between users (0-120s) so the request pattern doesn't
+        // look like a bot hammering through accounts back-to-back.
+        $duration = random_int(0, 120);
+        echo "Reddit: pausing {$duration}s before next user.\n";
+        sleep($duration);
     }
 
     $url = 'https://www.reddit.com/user/'.urlencode($username)
