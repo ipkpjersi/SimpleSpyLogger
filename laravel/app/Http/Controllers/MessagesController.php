@@ -24,10 +24,23 @@ class MessagesController extends Controller
                 ->values();
         };
 
+        $distinctWithSource = function (string $column) {
+            return Message::query()
+                ->whereNotNull($column)
+                ->where($column, '!=', '')
+                ->select('source', $column)
+                ->distinct()
+                ->orderBy('source')
+                ->orderBy($column)
+                ->get()
+                ->map(fn ($r) => ['source' => $r->source, 'value' => $r->{$column}])
+                ->values();
+        };
+
         $filters = [
             'source' => $distinct('source'),
-            'container' => $distinct('container_name'),
-            'channel' => $distinct('channel_name'),
+            'container' => $distinctWithSource('container_name'),
+            'channel' => $distinctWithSource('channel_name'),
             'author' => $distinct('author_username'),
             'visibility' => $distinct('visibility'),
         ];

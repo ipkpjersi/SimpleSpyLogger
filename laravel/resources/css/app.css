@@ -10,6 +10,18 @@
     color: #F3F4F6; /* text-gray-100 */
 }
 
+select.yadcf-filter,
+select.yadcf-filter option {
+    color: #111827; /* text-gray-900 */
+    background-color: #ffffff;
+}
+
+.dark select.yadcf-filter,
+.dark select.yadcf-filter option {
+    color: #F3F4F6; /* text-gray-100 */
+    background-color: #1F2937; /* gray-800 */
+}
+
 .no_dropdown_arrow {
     appearance: none;
     -webkit-appearance: none;

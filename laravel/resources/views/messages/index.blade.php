@@ -100,6 +100,17 @@
                 return '<span class="text-white px-2 py-0.5 rounded text-xs font-medium ' + classes + '">' + esc(text) + '</span>';
             }
 
+            function buildSourcedOptions(rows, maxLen) {
+                return rows.map(function (r) {
+                    const value = String(r.value);
+                    const fullLabel = r.source + ': ' + value;
+                    const label = fullLabel.length > maxLen
+                        ? fullLabel.slice(0, maxLen) + '...'
+                        : fullLabel;
+                    return { value: value, label: label };
+                });
+            }
+
             const sourceClasses = {
                 discord: 'bg-indigo-600',
                 twitter: 'bg-sky-500',
@@ -158,13 +169,13 @@
                 {
                     column_number: 3,
                     filter_type: 'select',
-                    data: @json($filters['container']),
+                    data: buildSourcedOptions(@json($filters['container']), 25),
                     filter_default_label: 'Container',
                 },
                 {
                     column_number: 4,
                     filter_type: 'select',
-                    data: @json($filters['channel']),
+                    data: buildSourcedOptions(@json($filters['channel']), 25),
                     filter_default_label: 'Channel',
                 },
                 {
