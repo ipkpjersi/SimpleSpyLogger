@@ -11,15 +11,31 @@
 }
 
 select.yadcf-filter,
-select.yadcf-filter option {
+select.yadcf-filter option,
+input.yadcf-filter,
+.dataTables_filter input {
     color: #111827; /* text-gray-900 */
     background-color: #ffffff;
+    caret-color: #111827;
+}
+
+input.yadcf-filter::placeholder,
+.dataTables_filter input::placeholder {
+    color: #6B7280; /* text-gray-500 */
 }
 
 .dark select.yadcf-filter,
-.dark select.yadcf-filter option {
+.dark select.yadcf-filter option,
+.dark input.yadcf-filter,
+.dark .dataTables_filter input {
     color: #F3F4F6; /* text-gray-100 */
     background-color: #1F2937; /* gray-800 */
+    caret-color: #F3F4F6;
+}
+
+.dark input.yadcf-filter::placeholder,
+.dark .dataTables_filter input::placeholder {
+    color: #9CA3AF; /* text-gray-400 */
 }
 
 .no_dropdown_arrow {

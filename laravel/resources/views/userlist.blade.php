@@ -84,7 +84,7 @@
                         { value: "1", label: "Yes" },
                         { value: "0", label: "No" },
                     ],
-                    filter_default_label: "All Users"
+                    filter_default_label: "All"
                 },
             ]);
             $(document).on('click', '.banUser', function() {
