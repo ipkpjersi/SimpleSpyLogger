@@ -124,6 +124,8 @@
                 discord: 'bg-indigo-600',
                 twitter: 'bg-sky-500',
                 rscplus: 'bg-amber-600',
+                reddit: 'bg-red-600',
+                lemmy: 'bg-green-600',
             };
 
             const visibilityClasses = {
