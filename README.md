@@ -10,14 +10,14 @@ SimpleSpyLogger/
   laravel/                  # Laravel app (based on laravel-breeze-starter): API + migrations + models
   sources/                  # One subfolder per agent. Folder name describes the implementation,
     betterdiscord/          # not the `source` column value. Add more as needed:
-                            # e.g. sources/twitter/, sources/rscplus/.
+                            # e.g. sources/lemmy/, sources/rscplus/.
 ```
 
 ## Architecture
 
 ```
   BD plugin      (source=discord)   -->  POST /api/messages/ingest  -->  MySQL
-  Twitter script (source=twitter)   -->  POST /api/messages/ingest  -->  MySQL
+  Lemmy script (source=lemmy)   -->  POST /api/messages/ingest  -->  MySQL
   RSCPlus client (source=rscplus)   -->  POST /api/messages/ingest  -->  MySQL
 ```
 
