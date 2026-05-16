@@ -2,7 +2,7 @@
  * @name SimpleSpyLogger
  * @description Logs every Discord message you can see to the SimpleSpyLogger Laravel ingest API.
  * @author ken
- * @version 0.4.5
+ * @version 0.4.6
  */
 module.exports = class SimpleSpyLogger {
     constructor(meta) {
@@ -19,6 +19,8 @@ module.exports = class SimpleSpyLogger {
             debugLogEvents: false, // console.log the raw Flux event/message shape for each captured event
             includedUserIds: "",   // newline-separated Discord user IDs; if set, ONLY these are logged
             excludedUserIds: "",   // newline-separated Discord user IDs
+            includedUsernames: "", // newline-separated Discord usernames (case-insensitive); if set, ONLY these are logged
+            excludedUsernames: "", // newline-separated Discord usernames (case-insensitive)
             includedGuildIds: "",  // newline-separated Discord guild IDs; if set, ONLY these are logged
             excludedGuildIds: "",  // newline-separated Discord guild IDs
             includedChannelNames: "", // newline-separated channel names (case-insensitive); if set, ONLY these are logged
@@ -209,13 +211,24 @@ module.exports = class SimpleSpyLogger {
 
         // For DMs / group DMs the users involved in a conversation include the
         // channel recipients, not just the author - so an included/excluded
-        // user id matches a message sent to OR from that user.
+        // user id (or username) matches a message sent to OR from that user.
         const userIds = new Set();
+        const usernamesLc = new Set();
         if (userId) userIds.add(userId);
+        const authorUsername = (message && message.author && message.author.username) ? String(message.author.username) : "";
+        if (authorUsername) usernamesLc.add(authorUsername.toLowerCase());
         if (channel && Array.isArray(channel.recipients)) {
             for (const r of channel.recipients) {
                 const rid = String((r && r.id) || r || "");
                 if (rid) userIds.add(rid);
+                // recipients may be full user objects or bare id strings;
+                // when bare, resolve the username via the UserStore.
+                let runame = (r && r.username) ? String(r.username) : "";
+                if (!runame && rid && this.userStore && this.userStore.getUser) {
+                    const ru = this.userStore.getUser(rid);
+                    if (ru && ru.username) runame = String(ru.username);
+                }
+                if (runame) usernamesLc.add(runame.toLowerCase());
             }
         }
 
@@ -225,6 +238,8 @@ module.exports = class SimpleSpyLogger {
         const includedGuilds = this.parseIdList(s.includedGuildIds);
         const excludedUsers = this.parseIdList(s.excludedUserIds);
         const excludedGuilds = this.parseIdList(s.excludedGuildIds);
+        const includedUsernames = this.parseNameList(s.includedUsernames);
+        const excludedUsernames = this.parseNameList(s.excludedUsernames);
         const includedChannels = this.parseNameList(s.includedChannelNames);
         const excludedChannels = this.parseNameList(s.excludedChannelNames);
 
@@ -241,6 +256,14 @@ module.exports = class SimpleSpyLogger {
                 if (!this.intersects(userIds, includedUsers)) { dbg("user not in include list", "id=" + messageId); return; }
             } else if (this.intersects(userIds, excludedUsers)) {
                 dbg("user in exclude list", "id=" + messageId);
+                return;
+            }
+        }
+        if (usernamesLc.size > 0) {
+            if (includedUsernames.size > 0) {
+                if (!this.intersects(usernamesLc, includedUsernames)) { dbg("username not in include list", "id=" + messageId); return; }
+            } else if (this.intersects(usernamesLc, excludedUsernames)) {
+                dbg("username in exclude list", "id=" + messageId);
                 return;
             }
         }
@@ -497,6 +520,8 @@ module.exports = class SimpleSpyLogger {
         root.appendChild(mkInput("Max queue size", "maxQueueSize", "number"));
         root.appendChild(mkTextarea("Included user IDs", "includedUserIds", "One Discord user ID per line. If set, ONLY these users are logged and the Excluded user IDs list is ignored."));
         root.appendChild(mkTextarea("Excluded user IDs", "excludedUserIds", "One Discord user ID per line. Messages from these users will not be logged. Ignored when Included user IDs is set."));
+        root.appendChild(mkTextarea("Included usernames", "includedUsernames", "One Discord username per line (case-insensitive, the canonical @username, not the display name). If set, ONLY these users are logged and the Excluded usernames list is ignored."));
+        root.appendChild(mkTextarea("Excluded usernames", "excludedUsernames", "One Discord username per line (case-insensitive, the canonical @username, not the display name). Messages from these users will not be logged. Ignored when Included usernames is set."));
         root.appendChild(mkTextarea("Included guild IDs", "includedGuildIds", "One Discord guild (server) ID per line. If set, ONLY these servers are logged and the Excluded guild IDs list is ignored."));
         root.appendChild(mkTextarea("Excluded guild IDs", "excludedGuildIds", "One Discord guild (server) ID per line. Messages in these servers will not be logged. Ignored when Included guild IDs is set."));
         root.appendChild(mkTextarea("Included channel names", "includedChannelNames", "One channel name per line (case-insensitive, no leading #). If set, ONLY these channels are logged and the Excluded channel names list is ignored. Does not apply to DMs."));
