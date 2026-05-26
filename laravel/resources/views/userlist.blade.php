@@ -87,6 +87,37 @@
                     filter_default_label: "All"
                 },
             ]);
+
+            // Restrict sorting to the column title (same as the messages view):
+            // DataTables makes the whole header cell a sort toggle, including
+            // the filter area. Remove its whole-cell click handler and make a
+            // .ssl-sort title handle the only sort trigger.
+            $('#userTable thead th').off('click.DT');
+            $('#userTable thead th').each(function () {
+                const th = this;
+                if (!(th.classList.contains('sorting') || th.classList.contains('sorting_asc') || th.classList.contains('sorting_desc'))) {
+                    return;
+                }
+                const title = th.childNodes[0];
+                if (title && title.nodeType === 3 && title.textContent.trim() !== '') {
+                    const handle = document.createElement('span');
+                    handle.className = 'ssl-sort';
+                    handle.textContent = title.textContent;
+                    const ind = document.createElement('span');
+                    ind.className = 'ssl-sort-ind';
+                    ind.setAttribute('aria-hidden', 'true');
+                    handle.appendChild(ind);
+                    th.replaceChild(handle, title);
+                }
+            });
+            $('#userTable thead').on('click', '.ssl-sort', function () {
+                const th = $(this).closest('th')[0];
+                const colIdx = Array.prototype.indexOf.call(th.parentNode.children, th);
+                const cur = dataTable.order();
+                const dir = (cur.length && cur[0][0] === colIdx && cur[0][1] === 'asc') ? 'desc' : 'asc';
+                dataTable.order([colIdx, dir]).draw();
+            });
+
             $(document).on('click', '.banUser', function() {
                 let userId = $(this).data('user-id');
                 axios.post(`/users/${userId}/ban`, {
