@@ -208,7 +208,7 @@
                     data: @json($filters['source']),
                     filter_default_label: 'Source',
                     select_type: 'select2',
-                    select_type_options: { width: '100%', placeholder: 'Source' },
+                    select_type_options: { width: '8rem', placeholder: 'Source' },
                 },
                 {
                     column_number: 3,
@@ -217,7 +217,7 @@
                     filter_default_label: 'Container',
                     select_type: 'select2',
                     select_type_options: {
-                        width: '100%',
+                        width: '14rem',
                         placeholder: 'Container',
                         minimumInputLength: 0,
                         ajax: remoteOptions('container_name'),
@@ -230,7 +230,7 @@
                     filter_default_label: 'Channel',
                     select_type: 'select2',
                     select_type_options: {
-                        width: '100%',
+                        width: '14rem',
                         placeholder: 'Channel',
                         minimumInputLength: 0,
                         ajax: remoteOptions('channel_name'),
@@ -243,7 +243,7 @@
                     filter_default_label: 'Author',
                     select_type: 'select2',
                     select_type_options: {
-                        width: '100%',
+                        width: '12rem',
                         placeholder: 'Author',
                         minimumInputLength: 0,
                         ajax: remoteOptions('author_username'),
@@ -255,9 +255,21 @@
                     data: @json($filters['visibility']),
                     filter_default_label: 'Visibility',
                     select_type: 'select2',
-                    select_type_options: { width: '100%', placeholder: 'Visibility' },
+                    select_type_options: { width: '8rem', placeholder: 'Visibility' },
                 },
             ]);
+
+            // yadcf rebuilds (and empties) every filter <select> on each table
+            // redraw via a document-level draw.dt handler, then refills options
+            // from each column's static `data`. The ajax-backed filters have no
+            // static data, so that wipes the option Select2 added for a pick and
+            // the chip disappears. We don't need this rebuild at all: source and
+            // visibility use static options built once at init, and the ajax
+            // filters are managed by Select2 - so dropping the handler keeps all
+            // selections intact across redraws (and avoids restore loops).
+            // initAndBindTable binds it synchronously during yadcf.init above,
+            // so it exists by now; no other code uses document-level draw.dt.
+            $(document).off('draw.dt');
 
             // When the source selection changes, the container/channel/author
             // selections may no longer belong to the chosen source(s), so reset

@@ -84,6 +84,31 @@ input.yadcf-filter::placeholder,
     }
 }
 
+/* Multi-select filters grow vertically: chips wrap onto new lines and the
+   control gets taller, instead of staying on one (clipped) row. Select2's base
+   rule sets the rendered list to display:inline and loads after this file, so
+   the extra .select2-container class is needed to win on specificity. */
+.select2-container.select2-container--default .select2-selection--multiple {
+    height: auto;
+    min-height: 32px;
+}
+
+.select2-container.select2-container--default .select2-selection--multiple .select2-selection__rendered {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Let a long chip label wrap onto multiple lines (growing the control taller)
+   instead of being truncated to one line with an ellipsis. Select2's base chip
+   rule sets white-space:nowrap + text-overflow:ellipsis; override both. */
+.select2-container.select2-container--default .select2-selection--multiple .select2-selection__choice {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+}
+
 .dark .select2-container--default .select2-selection--single,
 .dark .select2-container--default .select2-selection--multiple {
     background-color: #1F2937; /* gray-800 */
