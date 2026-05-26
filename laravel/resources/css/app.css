@@ -109,6 +109,47 @@ input.yadcf-filter::placeholder,
     overflow-wrap: anywhere;
 }
 
+/* Sorting affordance: only the column title (.ssl-sort) toggles sorting, not
+   the whole (now tall) header cell. Hide DataTables' default centered arrows
+   and show a compact indicator beside the title instead. */
+#messagesTable thead > tr > th.sorting,
+#messagesTable thead > tr > th.sorting_asc,
+#messagesTable thead > tr > th.sorting_desc {
+    cursor: default;
+    padding-right: 8px;
+}
+
+#messagesTable thead > tr > th.sorting::before,
+#messagesTable thead > tr > th.sorting::after,
+#messagesTable thead > tr > th.sorting_asc::before,
+#messagesTable thead > tr > th.sorting_asc::after,
+#messagesTable thead > tr > th.sorting_desc::before,
+#messagesTable thead > tr > th.sorting_desc::after {
+    display: none;
+}
+
+#messagesTable thead .ssl-sort {
+    cursor: pointer;
+    display: inline-block;
+}
+
+#messagesTable thead .ssl-sort-ind::after {
+    content: '\2195'; /* up-down arrow: unsorted */
+    margin-left: 4px;
+    font-size: 0.8em;
+    opacity: 0.35;
+}
+
+#messagesTable thead th.sorting_asc .ssl-sort-ind::after {
+    content: '\25B2'; /* up triangle */
+    opacity: 0.9;
+}
+
+#messagesTable thead th.sorting_desc .ssl-sort-ind::after {
+    content: '\25BC'; /* down triangle */
+    opacity: 0.9;
+}
+
 .dark .select2-container--default .select2-selection--single,
 .dark .select2-container--default .select2-selection--multiple {
     background-color: #1F2937; /* gray-800 */

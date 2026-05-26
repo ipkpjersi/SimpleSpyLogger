@@ -271,6 +271,38 @@
             // so it exists by now; no other code uses document-level draw.dt.
             $(document).off('draw.dt');
 
+            // Restrict sorting to the column title. DataTables makes the entire
+            // header cell a sort toggle, but the cells are now tall (filter +
+            // wrapped chips), so clicking the filter area or empty space under a
+            // column would re-sort. Remove its whole-cell click handler and make
+            // a .ssl-sort title handle the only sort trigger (filters and
+            // Select2 are untouched and keep working).
+            $('#messagesTable thead th').off('click.DT');
+            $('#messagesTable thead th').each(function () {
+                const th = this;
+                if (!(th.classList.contains('sorting') || th.classList.contains('sorting_asc') || th.classList.contains('sorting_desc'))) {
+                    return;
+                }
+                const title = th.childNodes[0];
+                if (title && title.nodeType === 3 && title.textContent.trim() !== '') {
+                    const handle = document.createElement('span');
+                    handle.className = 'ssl-sort';
+                    handle.textContent = title.textContent;
+                    const ind = document.createElement('span');
+                    ind.className = 'ssl-sort-ind';
+                    ind.setAttribute('aria-hidden', 'true');
+                    handle.appendChild(ind);
+                    th.replaceChild(handle, title);
+                }
+            });
+            $('#messagesTable thead').on('click', '.ssl-sort', function () {
+                const th = $(this).closest('th')[0];
+                const colIdx = Array.prototype.indexOf.call(th.parentNode.children, th);
+                const cur = table.order();
+                const dir = (cur.length && cur[0][0] === colIdx && cur[0][1] === 'asc') ? 'desc' : 'asc';
+                table.order([colIdx, dir]).draw();
+            });
+
             // When the source selection changes, the container/channel/author
             // selections may no longer belong to the chosen source(s), so reset
             // them. Their option lists already re-query with the new source on
