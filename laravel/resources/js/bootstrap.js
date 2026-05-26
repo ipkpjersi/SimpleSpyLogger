@@ -38,3 +38,10 @@ import 'datatables.net';
 import 'datatables.net-responsive';
 import 'datatables.net-dt/css/jquery.dataTables.css';
 import 'datatables.net-responsive-dt/css/responsive.dataTables.min.css';
+
+// Select2's CommonJS entry exports a factory that must be invoked with our
+// jQuery instance; a bare side-effect import would never register $.fn.select2.
+import select2 from 'select2';
+import 'select2/dist/css/select2.css';
+
+select2(window, $);

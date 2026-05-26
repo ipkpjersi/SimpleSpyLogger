@@ -100,24 +100,49 @@
                 return '<span class="text-white px-2 py-0.5 rounded text-xs font-medium ' + classes + '">' + esc(text) + '</span>';
             }
 
-            function buildSourcedOptions(rows, maxLen) {
-                return rows.map(function (r) {
-                    const value = String(r.value);
-                    const fullLabel = r.source + ': ' + value;
-                    const label = fullLabel.length > maxLen
-                        ? fullLabel.slice(0, maxLen) + '...'
-                        : fullLabel;
-                    return { value: value, label: label };
-                });
+            const sourceColumn = 1;
+            const dependentColumns = [3, 4, 5];
+
+            // yadcf mangles the table selector when generating filter element
+            // ids (it turns "#messagesTable" into "-messagesTable"), so rather
+            // than reconstruct that id we match the filter <select> by its id
+            // suffix, which is always "-<columnNumber>". Robust to id mangling
+            // and to whether yadcf renders filters in their own header row.
+            function filterSelect(columnNumber) {
+                return $('#messagesTable').find('select.yadcf-filter[id$="-' + columnNumber + '"]');
             }
 
-            function buildPlainOptions(values, maxLen) {
-                return values.map(function (v) {
-                    const s = String(v);
-                    return s.length > maxLen
-                        ? { value: s, label: s.slice(0, maxLen) + '...' }
-                        : s;
-                });
+            // Currently selected source value(s); drives the cascade so the
+            // dependent dropdowns only offer values for those sources.
+            function currentSources() {
+                const val = filterSelect(sourceColumn).val();
+                if (!val) {
+                    return [];
+                }
+                return Array.isArray(val) ? val : [val];
+            }
+
+            // Builds a Select2 ajax config that loads distinct values for a
+            // single column on demand, so we never ship the full (unbounded)
+            // option list to the page.
+            function remoteOptions(field) {
+                return {
+                    url: '{{ route("messages.filter-options") }}',
+                    dataType: 'json',
+                    delay: 250,
+                    cache: true,
+                    data: function (params) {
+                        return {
+                            field: field,
+                            q: params.term || '',
+                            page: params.page || 1,
+                            source: currentSources(),
+                        };
+                    },
+                    processResults: function (data) {
+                        return data;
+                    },
+                };
             }
 
             const sourceClasses = {
@@ -179,35 +204,80 @@
             yadcf.init(table, [
                 {
                     column_number: 1,
-                    filter_type: 'select',
+                    filter_type: 'multi_select',
                     data: @json($filters['source']),
                     filter_default_label: 'Source',
+                    select_type: 'select2',
+                    select_type_options: { width: '100%', placeholder: 'Source' },
                 },
                 {
                     column_number: 3,
-                    filter_type: 'select',
-                    data: buildSourcedOptions(@json($filters['container']), 20),
+                    filter_type: 'multi_select',
+                    data: [],
                     filter_default_label: 'Container',
+                    select_type: 'select2',
+                    select_type_options: {
+                        width: '100%',
+                        placeholder: 'Container',
+                        minimumInputLength: 0,
+                        ajax: remoteOptions('container_name'),
+                    },
                 },
                 {
                     column_number: 4,
-                    filter_type: 'select',
-                    data: buildSourcedOptions(@json($filters['channel']), 20),
+                    filter_type: 'multi_select',
+                    data: [],
                     filter_default_label: 'Channel',
+                    select_type: 'select2',
+                    select_type_options: {
+                        width: '100%',
+                        placeholder: 'Channel',
+                        minimumInputLength: 0,
+                        ajax: remoteOptions('channel_name'),
+                    },
                 },
                 {
                     column_number: 5,
-                    filter_type: 'select',
-                    data: buildPlainOptions(@json($filters['author']), 20),
+                    filter_type: 'multi_select',
+                    data: [],
                     filter_default_label: 'Author',
+                    select_type: 'select2',
+                    select_type_options: {
+                        width: '100%',
+                        placeholder: 'Author',
+                        minimumInputLength: 0,
+                        ajax: remoteOptions('author_username'),
+                    },
                 },
                 {
                     column_number: 6,
-                    filter_type: 'select',
+                    filter_type: 'multi_select',
                     data: @json($filters['visibility']),
                     filter_default_label: 'Visibility',
+                    select_type: 'select2',
+                    select_type_options: { width: '100%', placeholder: 'Visibility' },
                 },
             ]);
+
+            // When the source selection changes, the container/channel/author
+            // selections may no longer belong to the chosen source(s), so reset
+            // them. Their option lists already re-query with the new source on
+            // next open via remoteOptions(). Only reset when something is set,
+            // to avoid needless redraws on the common (empty) case.
+            $('#messagesTable').on('change', 'select.yadcf-filter', function () {
+                const id = $(this).attr('id') || '';
+                if (!id.endsWith('-' + sourceColumn)) {
+                    return;
+                }
+                const hasDependentSelection = dependentColumns.some(function (col) {
+                    const val = filterSelect(col).val();
+                    return val && val.length;
+                });
+                if (hasDependentSelection) {
+                    yadcf.exResetFilters(table, dependentColumns, true);
+                    table.draw(false);
+                }
+            });
 
             $('#messagesTable tbody').on('click', '.ssl-content', function () {
                 const rowData = table.row($(this).closest('tr')).data();
