@@ -147,6 +147,9 @@ class MessageIngestService
 
     private function mapMessage(string $source, array $msg, Carbon $capturedAt): array
     {
+        // An exported `url` is intentionally not mapped below: it is a computed
+        // accessor (Message::getUrlAttribute) derived from the other fields, so
+        // it is read-only and ignored on import rather than persisted.
         return [
             'source' => $source,
             'external_id' => (string) $msg['external_id'],

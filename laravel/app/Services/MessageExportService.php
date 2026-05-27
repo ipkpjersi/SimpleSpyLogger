@@ -88,6 +88,10 @@ class MessageExportService
             'source_edited_at' => optional($m->source_edited_at)->toIso8601String(),
             'deleted_at' => optional($m->deleted_at)->toIso8601String(),
             'payload' => $m->payload,
+            // Derived permalink (Message::url accessor), emitted for downstream
+            // and human use. Read-only: the importer ignores it on the way back
+            // in, since url is computed from the other fields and not stored.
+            'url' => $m->url,
         ];
     }
 

@@ -43,6 +43,46 @@ class Message extends Model
         return $this->hasMany(MessageRevision::class);
     }
 
+    // Permalink back to the original message on the source service, derived
+    // from data already stored (no separate column). Returns null for sources
+    // with no web URL, e.g. rscplus in-game chat.
+    public function getUrlAttribute(): ?string
+    {
+        $payload = is_array($this->payload) ? $this->payload : [];
+
+        switch ($this->source) {
+            case 'discord':
+                if (($this->external_id ?? '') === '' || ($this->channel_external_id ?? '') === '') {
+                    return null;
+                }
+                // DMs have no guild; Discord uses the literal "@me" there.
+                $guild = ($this->container_external_id ?? '') !== '' ? $this->container_external_id : '@me';
+
+                return "https://discord.com/channels/{$guild}/{$this->channel_external_id}/{$this->external_id}";
+
+            case 'reddit':
+                $permalink = $payload['permalink'] ?? null;
+                if (! is_string($permalink) || $permalink === '') {
+                    return null;
+                }
+
+                return 'https://www.reddit.com'.$permalink;
+
+            case 'lemmy':
+                // ap_id is the canonical ActivityPub URL of the comment. Require
+                // an http(s) scheme so a malformed value can't become a link.
+                $apId = $payload['ap_id'] ?? null;
+                if (! is_string($apId) || ! preg_match('#^https?://#i', $apId)) {
+                    return null;
+                }
+
+                return $apId;
+
+            default:
+                return null;
+        }
+    }
+
     public function scopeForSource(Builder $query, string $source): Builder
     {
         return $query->where('source', $source);

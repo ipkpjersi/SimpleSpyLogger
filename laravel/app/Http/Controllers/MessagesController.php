@@ -129,9 +129,12 @@ class MessagesController extends Controller
             'content',
             'sent_at',
             'deleted_at',
+            // Needed by the Message::url accessor to derive reddit/lemmy links.
+            'payload',
         ]);
 
         return DataTables::of($query)
+            ->addColumn('url', fn ($m) => $m->url)
             // RSCPlus rows share one sent_at per session (the log only carries
             // a session-start timestamp), so add id as a tiebreaker to keep
             // them in file order under ties.

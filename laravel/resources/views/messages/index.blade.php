@@ -27,6 +27,7 @@
                                 <th>Author</th>
                                 <th>Visibility</th>
                                 <th>Content</th>
+                                <th>Link</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -72,6 +73,25 @@
                 const truncated = full.length > 150 ? full.slice(0, 150) + '...' : full;
                 // full is non-empty here, so esc() escapes it for the title attribute too.
                 return '<span class="ssl-content cursor-pointer hover:underline" style="display:inline-block;max-width:32rem;vertical-align:top;white-space:normal;word-break:break-word;overflow-wrap:anywhere;" title="' + esc(full) + '">' + esc(truncated) + '</span>';
+            }
+
+            function renderLink(data, type) {
+                if (type !== 'display') {
+                    return data || '';
+                }
+                // Only render an anchor for an http(s) URL so a malformed value
+                // can never produce a javascript: link.
+                if (typeof data !== 'string' || !/^https?:\/\//i.test(data)) {
+                    return '<span class="text-gray-400 dark:text-gray-500">&mdash;</span>';
+                }
+                const safe = esc(data);
+                return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer" '
+                    + 'class="ssl-open bg-blue-500 hover:bg-blue-700 text-white text-xs font-bold py-1 px-3 rounded inline-flex items-center gap-1" '
+                    + 'title="' + safe + '">Open'
+                    + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3" aria-hidden="true">'
+                    + '<path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />'
+                    + '<path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />'
+                    + '</svg></a>';
             }
 
             const modal = document.getElementById('messageModal');
@@ -192,6 +212,7 @@
                         },
                     },
                     { data: 'content', name: 'content', orderable: false, render: renderContent },
+                    { data: 'url', name: 'url', orderable: false, searchable: false, width: '70px', render: renderLink },
                     {
                         data: null, name: 'actions', orderable: false, searchable: false, width: '90px',
                         render: function (row) {
