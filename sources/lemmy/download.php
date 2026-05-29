@@ -88,6 +88,23 @@ $env = load_env($root.'/.env');
 
 date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
 
+// Quick end-to-end check of the alert channels without scraping or touching
+// the DB: `php download.php test-alert`. Fires send_alert() and reports which
+// channels delivered, so you can confirm email/Discord config before relying
+// on the failure alerts.
+if (in_array($argv[1] ?? '', ['test-alert', '--test-alert', 'test'], true)) {
+    $stamp = date('Y-m-d H:i:s');
+    $results = send_alert(
+        $env,
+        'SimpleSpyLogger lemmy scraper: test alert',
+        "This is a test alert sent on $stamp to verify email and Discord delivery."
+    );
+    foreach ($results as $channel => $ok) {
+        echo str_pad($channel, 8).': '.($ok ? 'sent' : 'not sent (disabled or failed - see STDERR)')."\n";
+    }
+    exit(in_array(true, $results, true) ? 0 : 1);
+}
+
 $instance = rtrim($env['LEMMY_INSTANCE'] ?? '', '/');
 $usernames = array_filter(array_map('trim', explode(',', $env['LEMMY_USERNAME'] ?? '')));
 $perPage = (int) ($env['LEMMY_PER_PAGE'] ?? 50);
@@ -117,6 +134,12 @@ try {
     exit(1);
 }
 
+$lookup = $pdo->prepare(
+    'SELECT id, content, payload, source_edited_at
+       FROM messages
+       WHERE source = :source AND external_id = :external_id'
+);
+
 $insert = $pdo->prepare(
     'INSERT IGNORE INTO messages
         (source, external_id, container_external_id, container_name,
@@ -132,8 +155,26 @@ $insert = $pdo->prepare(
          :deleted_at, :captured_at, :payload, :created_at, :updated_at)'
 );
 
+$revision = $pdo->prepare(
+    'INSERT INTO message_revisions
+        (message_id, content, payload, source_edited_at, captured_at, created_at)
+     VALUES
+        (:message_id, :content, :payload, :source_edited_at, :captured_at, :created_at)'
+);
+
+$update = $pdo->prepare(
+    'UPDATE messages
+        SET content = :content,
+            payload = :payload,
+            source_edited_at = :source_edited_at,
+            deleted_at = COALESCE(deleted_at, :deleted_at),
+            updated_at = :updated_at
+        WHERE id = :id'
+);
+
 $capturedAt = date('Y-m-d H:i:s');
 $totalInserted = 0;
+$totalUpdated = 0;
 $failures = [];
 
 foreach ($usernames as $username) {
@@ -168,6 +209,7 @@ foreach ($usernames as $username) {
     }
 
     $insertedForUser = 0;
+    $updatedForUser = 0;
     foreach ($comments as $cv) {
         $comment = $cv['comment'] ?? null;
         $creator = $cv['creator'] ?? null;
@@ -204,41 +246,76 @@ foreach ($usernames as $username) {
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
         $deleted = (! empty($comment['deleted']) || ! empty($comment['removed'])) ? $capturedAt : null;
+        $newContent = $comment['content'] ?? null;
+        $editedAt = ! empty($comment['updated']) ? date('Y-m-d H:i:s', strtotime($comment['updated'])) : null;
 
         try {
-            $insert->execute([
-                ':source' => 'lemmy',
-                ':external_id' => $externalId,
-                ':container_external_id' => isset($community['id']) ? (string) $community['id'] : null,
-                ':container_name' => $community['title'] ?? ($community['name'] ?? null),
-                ':channel_external_id' => isset($post['id']) ? (string) $post['id'] : null,
-                ':channel_name' => $post['name'] ?? null,
-                ':visibility' => 'public',
-                ':author_external_id' => (string) $creator['id'],
-                ':author_username' => (string) $creator['name'],
-                ':author_display_name' => $creator['display_name'] ?? null,
-                ':author_bot' => ! empty($creator['bot_account']) ? 1 : 0,
-                ':content' => $comment['content'] ?? null,
-                ':referenced_external_id' => $referenced,
-                ':sent_at' => ! empty($comment['published']) ? date('Y-m-d H:i:s', strtotime($comment['published'])) : null,
-                ':source_edited_at' => ! empty($comment['updated']) ? date('Y-m-d H:i:s', strtotime($comment['updated'])) : null,
-                ':deleted_at' => $deleted,
-                ':captured_at' => $capturedAt,
-                ':payload' => $payload,
-                ':created_at' => $capturedAt,
-                ':updated_at' => $capturedAt,
-            ]);
-            $insertedForUser += $insert->rowCount();
+            $lookup->execute([':source' => 'lemmy', ':external_id' => $externalId]);
+            $existing = $lookup->fetch(PDO::FETCH_ASSOC);
+
+            if ($existing === false) {
+                $insert->execute([
+                    ':source' => 'lemmy',
+                    ':external_id' => $externalId,
+                    ':container_external_id' => isset($community['id']) ? (string) $community['id'] : null,
+                    ':container_name' => $community['title'] ?? ($community['name'] ?? null),
+                    ':channel_external_id' => isset($post['id']) ? (string) $post['id'] : null,
+                    ':channel_name' => $post['name'] ?? null,
+                    ':visibility' => 'public',
+                    ':author_external_id' => (string) $creator['id'],
+                    ':author_username' => (string) $creator['name'],
+                    ':author_display_name' => $creator['display_name'] ?? null,
+                    ':author_bot' => ! empty($creator['bot_account']) ? 1 : 0,
+                    ':content' => $newContent,
+                    ':referenced_external_id' => $referenced,
+                    ':sent_at' => ! empty($comment['published']) ? date('Y-m-d H:i:s', strtotime($comment['published'])) : null,
+                    ':source_edited_at' => $editedAt,
+                    ':deleted_at' => $deleted,
+                    ':captured_at' => $capturedAt,
+                    ':payload' => $payload,
+                    ':created_at' => $capturedAt,
+                    ':updated_at' => $capturedAt,
+                ]);
+                $insertedForUser += $insert->rowCount();
+            } elseif ($newContent !== null && $newContent !== $existing['content']) {
+                $pdo->beginTransaction();
+                try {
+                    $revision->execute([
+                        ':message_id' => $existing['id'],
+                        ':content' => $existing['content'],
+                        ':payload' => $existing['payload'],
+                        ':source_edited_at' => $existing['source_edited_at'],
+                        ':captured_at' => $capturedAt,
+                        ':created_at' => $capturedAt,
+                    ]);
+                    $update->execute([
+                        ':id' => $existing['id'],
+                        ':content' => $newContent,
+                        ':payload' => $payload,
+                        ':source_edited_at' => $editedAt,
+                        ':deleted_at' => $deleted,
+                        ':updated_at' => $capturedAt,
+                    ]);
+                    $pdo->commit();
+                    $updatedForUser++;
+                } catch (PDOException $e) {
+                    $pdo->rollBack();
+                    throw $e;
+                }
+            }
         } catch (PDOException $e) {
             fwrite(STDERR, "Skipped comment {$comment['id']}: ".$e->getMessage()."\n");
         }
     }
 
-    echo "Lemmy: $username - $commentCount comments reported, ".count($comments)." fetched, $insertedForUser new.\n";
+    echo "Lemmy: $username - $commentCount comments reported, ".count($comments)." fetched, $insertedForUser new, $updatedForUser edited.\n";
     $totalInserted += $insertedForUser;
+    $totalUpdated += $updatedForUser;
 }
 
-echo "Lemmy: inserted $totalInserted new comments total.\n";
+$summary = "Lemmy: inserted $totalInserted new comments, $totalUpdated edited total.";
+echo $summary."\n";
+log_import_summary($summary);
 
 if ($failures) {
     $total = count($usernames);

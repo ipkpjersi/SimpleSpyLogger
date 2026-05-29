@@ -6,3 +6,6 @@ _unused_files/
 # Per-scraper credentials. Each sources/<scraper>/ keeps its own .env;
 # .env.example in the same folder is committed as the template.
 sources/*/.env
+
+# Per-run summary log written by sources/notifier.php::log_import_summary().
+sources/import.log

@@ -34,15 +34,31 @@ function send_alert_email(array $env, string $subject, string $body): bool
     $port = (int) ($env['MAIL_PORT'] ?? 587);
     $user = (string) ($env['MAIL_USERNAME'] ?? '');
     $pass = (string) ($env['MAIL_PASSWORD'] ?? '');
-    $scheme = (string) ($env['MAIL_SCHEME'] ?? '');
+    $scheme = strtolower((string) ($env['MAIL_SCHEME'] ?? ''));
     if (strtolower($user) === 'null') {
         $user = '';
     }
     if (strtolower($pass) === 'null') {
         $pass = '';
     }
-    if ($scheme === '' || strtolower($scheme) === 'null') {
-        $scheme = $port === 465 ? 'smtps' : 'smtp';
+    // Symfony Mailer only understands the transport schemes "smtp" (STARTTLS,
+    // typically port 587) and "smtps" (implicit TLS, typically port 465).
+    // Laravel-style configs often put an encryption mode here instead
+    // (tls/ssl), so map those onto the correct transport scheme rather than
+    // feeding e.g. "tls://" to Transport::fromDsn(), which throws.
+    switch ($scheme) {
+        case 'ssl':
+        case 'smtps':
+            $scheme = 'smtps';
+            break;
+        case 'tls':
+        case 'starttls':
+        case 'smtp':
+            $scheme = 'smtp';
+            break;
+        default:
+            $scheme = $port === 465 ? 'smtps' : 'smtp';
+            break;
     }
 
     $auth = ($user !== '' && $pass !== '')
@@ -127,4 +143,14 @@ function send_alert(array $env, string $subject, string $body): array
         'email' => send_alert_email($env, $subject, $body),
         'discord' => send_discord_webhook($env, $subject, $body),
     ];
+}
+
+// Append a single timestamped line to sources/import.log. Used by the scrapers
+// to record their per-run summary so cron output stays inspectable after the
+// fact. Append-only writes under PIPE_BUF (one short line) are atomic on Linux,
+// so concurrent scrapers don't need a lock.
+function log_import_summary(string $line): void
+{
+    $stamp = date('Y-m-d H:i:s');
+    file_put_contents(__DIR__.'/import.log', "[$stamp] $line\n", FILE_APPEND);
 }
