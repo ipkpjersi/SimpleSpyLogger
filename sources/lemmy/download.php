@@ -10,6 +10,13 @@
  * commenter -> author.
  *
  * Usage: php download.php
+ *
+ * Cron: no keyring or session cookie is involved (public API), so a plain cron
+ * line is enough -- unlike the Reddit scraper, this needs no XDG_RUNTIME_DIR /
+ * DBUS_SESSION_BUS_ADDRESS (those let the Reddit job read the browser keyring to
+ * refresh its cookie):
+ *
+ *   0 0,12 * * * /usr/bin/php /path/to/sources/lemmy/download.php >/dev/null 2>&1
  */
 
 $root = __DIR__;
