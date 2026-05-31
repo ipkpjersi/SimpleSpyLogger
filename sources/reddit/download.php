@@ -19,7 +19,23 @@
  * REDDIT_PER_PAGE comments (up to 100). No pagination; full historical
  * backfill beyond the first page is not supported here.
  *
- * Usage: php download.php
+ * Usage:
+ *   php download.php            normal run (randomized 60s-38m start delay)
+ *   php download.php no-delay   fetch immediately, skip all delays (manual/test)
+ *
+ * Cron: before each run this scraper auto-refreshes REDDIT_SESSION_COOKIE from
+ * the live Chrome profile (see refresh_cookie.php). That has to read the login
+ * keyring (Secret Service / gnome-keyring), which a bare cron job cannot reach
+ * because cron has no desktop-session environment. So the cron line MUST export
+ * the user D-Bus session, and it must be a single line:
+ *
+ *   0 0,12 * * * XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus /usr/bin/php /path/to/sources/reddit/download.php >/dev/null 2>&1
+ *
+ * Replace 1000 with your numeric uid (run `id -u`). The keyring also has to be
+ * unlocked, i.e. you must be logged into the desktop session (it stays unlocked
+ * through screen-lock and only locks on full logout). If the keyring is locked
+ * or unreachable, the refresh is skipped and the scraper falls back to the
+ * cookie already stored in .env.
  */
 
 $root = __DIR__;
@@ -101,7 +117,21 @@ if (in_array($argv[1] ?? '', ['test-alert', '--test-alert', 'test'], true)) {
     exit(in_array(true, $results, true) ? 0 : 1);
 }
 
+// Override for manual/test runs: skip the randomized human-like delays so the
+// scraper fetches immediately. Usage: php download.php no-delay
+$skipDelay = in_array($argv[1] ?? '', ['no-delay', '--no-delay', 'now'], true);
+
 $userAgent = $env['REDDIT_USER_AGENT'] ?? 'SimpleSpyLogger-RedditScraper/1.0';
+
+// Reddit rotates the reddit_session cookie on every browser login and revokes
+// the previous one, so refresh it from the live Chrome profile before fetching.
+// Best-effort: falls back to the cookie stored in .env if Chrome is closed mid
+// write, the keyring is locked (logged out), or the profile/cookie is missing.
+require __DIR__.'/refresh_cookie.php';
+$freshCookie = refreshRedditSessionCookie($root.'/.env', $env);
+if ($freshCookie !== null && $freshCookie !== '') {
+    $env['REDDIT_SESSION_COOKIE'] = $freshCookie;
+}
 
 // Reddit now 403s anonymous requests to the JSON endpoints, so we replay an
 // authenticated browser session cookie. Accept either a bare reddit_session
@@ -181,8 +211,8 @@ $update = $pdo->prepare(
 
 // Randomize the start within the cron window so requests don't land on the
 // minute hand. Range: 60s - 38m.
-$startDelay = random_int(60, 38 * 60);
-echo "Reddit: waiting {$startDelay}s before first fetch.\n";
+$startDelay = $skipDelay ? 0 : random_int(60, 38 * 60);
+echo $skipDelay ? "Reddit: skipping start delay (no-delay override).\n" : "Reddit: waiting {$startDelay}s before first fetch.\n";
 sleep($startDelay);
 
 $capturedAt = date('Y-m-d H:i:s');
@@ -193,7 +223,7 @@ $userIndex = 0;
 $failures = [];
 
 foreach ($usernames as $username) {
-    if ($userIndex++ > 0) {
+    if ($userIndex++ > 0 && ! $skipDelay) {
         // Random pause between users (0-120s) so the request pattern doesn't
         // look like a bot hammering through accounts back-to-back.
         $duration = random_int(0, 120);

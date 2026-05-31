@@ -9,3 +9,4 @@ sources/*/.env
 
 # Per-run summary log written by sources/notifier.php::log_import_summary().
 sources/import.log
+.claude/crontab.backup.20260531.txt
