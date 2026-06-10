@@ -61,6 +61,17 @@ delete.
 
 Indexes: unique `(source, external_id)`; covering `(source, channel_external_id, sent_at)`, `(source, author_external_id, sent_at)`, `(source, container_external_id, sent_at)`.
 
+Note: `deleted_at` here tracks an upstream/source-side delete, not a Laravel
+soft delete. The admin "delete message" action is a real hard delete - it
+removes the row. Because ingest dedups purely on `(source, external_id)`, a
+hard-deleted row has no memory it ever existed, so re-ingesting that
+`external_id` later (most realistically a JSON re-import or a source backfill;
+forward-only live ingest won't normally resend old messages) will re-create it.
+If we ever want hard deletes to stick, we could add a separate soft-delete flag
+on the row (distinct from `deleted_at`, which is taken) or a small "deleted"
+tombstone table keyed on `(source, external_id)`, and have the ingest handlers
+skip anything flagged there. Fine to leave as-is for now.
+
 ### `message_revisions`
 
 One row per edit. Snapshots the prior `content` + `payload` before overwrite.
