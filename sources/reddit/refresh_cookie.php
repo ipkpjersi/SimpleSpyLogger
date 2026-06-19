@@ -33,8 +33,12 @@ declare(strict_types=1);
 /**
  * Refresh REDDIT_SESSION_COOKIE in .env from the live Chrome cookie store.
  *
- * Returns the fresh cookie on success (and rewrites .env when it changed), or
- * null when refresh is disabled or the live cookie could not be read.
+ * Only adopts the Chrome cookie when it was issued later than the one already
+ * in .env (by JWT "iat"), so a stale on-disk cookie never overwrites a newer,
+ * still-valid one and revives the 403s. Returns the cookie the scraper should
+ * send -- the freshly adopted one, or the existing .env cookie when that is the
+ * same age or newer -- and rewrites .env only when it actually changed. Returns
+ * null when refresh is disabled or the live Chrome cookie could not be read.
  */
 function refreshRedditSessionCookie(string $envPath, array $env): ?string
 {
@@ -47,16 +51,72 @@ function refreshRedditSessionCookie(string $envPath, array $env): ?string
         return null;
     }
 
-    // Only rewrite .env when the value actually changed.
-    if (trim($env['REDDIT_SESSION_COOKIE'] ?? '') !== $cookie) {
-        if (writeEnvValue($envPath, 'REDDIT_SESSION_COOKIE', $cookie)) {
-            fwrite(STDERR, "[reddit] refreshed reddit_session cookie from Chrome\n");
-        } else {
-            fwrite(STDERR, "[reddit] decrypted a fresh cookie but failed to write it to .env\n");
-        }
+    $current = trim($env['REDDIT_SESSION_COOKIE'] ?? '');
+
+    // Nothing to do when Chrome already holds the cookie we have stored.
+    if ($current === $cookie) {
+        return $cookie;
+    }
+
+    // Reddit rotates reddit_session on every login and revokes the previous one
+    // (even while its JWT exp is still months away), but Chrome's on-disk cookie
+    // store can lag the live in-memory session for a long time. Reading the
+    // stale on-disk cookie would otherwise overwrite a newer, still-valid cookie
+    // in .env -- one Chrome has not flushed yet, or one set by hand -- with an
+    // already-revoked value and bring the 403s straight back. So only accept the
+    // Chrome cookie when it was issued strictly later than the stored one,
+    // comparing the JWT "iat" claim. When the stored cookie has no parseable iat
+    // (first-time setup or an empty value) there is no baseline, so accept
+    // whatever Chrome gives us.
+    $chromeIat = redditSessionCookieIssuedAt($cookie);
+    $currentIat = redditSessionCookieIssuedAt($current);
+    if ($currentIat !== null && ($chromeIat === null || $chromeIat <= $currentIat)) {
+        // Chrome's cookie is the same age or older than ours; keep ours and tell
+        // the caller to use it unchanged.
+        return $current;
+    }
+
+    if (writeEnvValue($envPath, 'REDDIT_SESSION_COOKIE', $cookie)) {
+        fwrite(STDERR, "[reddit] refreshed reddit_session cookie from Chrome\n");
+    } else {
+        fwrite(STDERR, "[reddit] decrypted a fresh cookie but failed to write it to .env\n");
     }
 
     return $cookie;
+}
+
+/**
+ * Return the "iat" (issued-at, unix seconds) claim from a reddit_session JWT,
+ * or null when the value is not a decodable JWT carrying a numeric iat. Used to
+ * compare two reddit_session cookies so the refresh never downgrades to an
+ * older, already-revoked session.
+ */
+function redditSessionCookieIssuedAt(string $cookie): ?int
+{
+    $cookie = trim($cookie);
+    if ($cookie === '') {
+        return null;
+    }
+    $parts = explode('.', $cookie);
+    if (count($parts) < 2) {
+        return null;
+    }
+    // Base64url-decode the JWT payload (middle segment).
+    $payload = strtr($parts[1], '-_', '+/');
+    $pad = strlen($payload) % 4;
+    if ($pad > 0) {
+        $payload .= str_repeat('=', 4 - $pad);
+    }
+    $json = base64_decode($payload, true);
+    if ($json === false) {
+        return null;
+    }
+    $claims = json_decode($json, true);
+    if (!is_array($claims) || !isset($claims['iat']) || !is_numeric($claims['iat'])) {
+        return null;
+    }
+
+    return (int) $claims['iat'];
 }
 
 /**
@@ -86,13 +146,24 @@ function redditDecryptLiveSessionCookie(array $env): ?string
         return null;
     }
 
-    // Chrome keeps the DB open, so copy it before reading rather than locking it.
+    // Chrome keeps the DB open, so copy it before reading rather than locking
+    // it. Copy the -wal/-shm sidecars too when present: if Chrome's cookie store
+    // is in WAL journal mode, the most recent writes (including a just-rotated
+    // reddit_session) live in the -wal file until the next checkpoint, so reading
+    // the bare Cookies file alone would miss them. SQLite needs the sidecars next
+    // to the main file under the same base name to apply them.
     $tmp = tempnam(sys_get_temp_dir(), 'ssl_rc_');
     if ($tmp === false || !copy($path, $tmp)) {
         if (is_string($tmp) && is_file($tmp)) {
             unlink($tmp);
         }
         return null;
+    }
+    $sidecars = [];
+    foreach (['-wal', '-shm'] as $ext) {
+        if (is_file($path.$ext) && copy($path.$ext, $tmp.$ext)) {
+            $sidecars[] = $tmp.$ext;
+        }
     }
 
     $cookieHex = null;
@@ -110,6 +181,11 @@ function redditDecryptLiveSessionCookie(array $env): ?string
         $cookieHex = null;
     }
     unlink($tmp);
+    foreach ($sidecars as $sidecar) {
+        if (is_file($sidecar)) {
+            unlink($sidecar);
+        }
+    }
 
     if (!is_string($cookieHex) || $cookieHex === '') {
         fwrite(STDERR, "[reddit] cookie auto-refresh: no reddit_session cookie in that Chrome profile\n");
