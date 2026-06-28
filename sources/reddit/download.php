@@ -40,6 +40,43 @@
 
 $root = __DIR__;
 
+// When invoked from cron the shell redirects this script's output into a rolling
+// log file whose path is passed in the REDDIT_CRON_LOG env var. In that case
+// print a timestamped header so each run is delimited, and register a shutdown
+// handler that trims the log back to its most recent lines (default 2000,
+// override with REDDIT_CRON_LOG_MAX_LINES) so it never grows unbounded. Manual
+// terminal runs leave REDDIT_CRON_LOG unset and are completely unaffected.
+$cronLog = (string) (getenv('REDDIT_CRON_LOG') ?: '');
+if ($cronLog !== '') {
+    echo '=== reddit '.date('Y-m-d H:i:s O')." ===\n";
+    register_shutdown_function(static function () use ($cronLog) {
+        $maxLines = (int) (getenv('REDDIT_CRON_LOG_MAX_LINES') ?: 2000);
+        if ($maxLines < 1) {
+            return;
+        }
+        // Flush our own buffered output into the log before reading it back.
+        if (is_resource(STDOUT)) {
+            fflush(STDOUT);
+        }
+        if (is_resource(STDERR)) {
+            fflush(STDERR);
+        }
+        if (!is_file($cronLog)) {
+            return;
+        }
+        $lines = file($cronLog, FILE_IGNORE_NEW_LINES);
+        if ($lines === false || count($lines) <= $maxLines) {
+            return;
+        }
+        // Write the trimmed log to a temp file and rename so the live log is
+        // never left half-written if this is interrupted mid-trim.
+        $tmp = $cronLog.'.tmp';
+        if (file_put_contents($tmp, implode("\n", array_slice($lines, -$maxLines))."\n", LOCK_EX) !== false) {
+            rename($tmp, $cronLog);
+        }
+    });
+}
+
 require_once __DIR__.'/../notifier.php';
 
 function load_env(string $path): array
@@ -123,27 +160,15 @@ $skipDelay = in_array($argv[1] ?? '', ['no-delay', '--no-delay', 'now'], true);
 
 $userAgent = $env['REDDIT_USER_AGENT'] ?? 'SimpleSpyLogger-RedditScraper/1.0';
 
-// Reddit rotates the reddit_session cookie on every browser login and revokes
-// the previous one, so refresh it from the live Chrome profile before fetching.
-// Best-effort: falls back to the cookie stored in .env if Chrome is closed mid
-// write, the keyring is locked (logged out), or the profile/cookie is missing.
+// refresh_cookie.php provides refreshRedditSessionCookie(); the actual refresh
+// is deferred until just before the first fetch (after the randomized start
+// delay below). Reddit rotates the reddit_session cookie on every browser login
+// and revokes the previous one, and the randomized delay can be up to 38
+// minutes -- long enough for a fresh login to happen during the wait -- so
+// reading the cookie here at process start would risk sending one that has gone
+// stale by the time we actually fetch. Refreshing after the sleep sends the
+// freshest cookie Chrome holds at fetch time instead.
 require __DIR__.'/refresh_cookie.php';
-$freshCookie = refreshRedditSessionCookie($root.'/.env', $env);
-if ($freshCookie !== null && $freshCookie !== '') {
-    $env['REDDIT_SESSION_COOKIE'] = $freshCookie;
-}
-
-// Reddit now 403s anonymous requests to the JSON endpoints, so we replay an
-// authenticated browser session cookie. Accept either a bare reddit_session
-// value or a full "name=value; name2=value2" Cookie header; the bare value is
-// the common case so wrap it into reddit_session=... when no '=' is present.
-$sessionCookie = trim($env['REDDIT_SESSION_COOKIE'] ?? '');
-if ($sessionCookie !== '' && strpos($sessionCookie, '=') === false) {
-    $sessionCookie = 'reddit_session='.$sessionCookie;
-}
-if ($sessionCookie === '') {
-    fwrite(STDERR, "Warning: REDDIT_SESSION_COOKIE is empty; Reddit requires an authenticated session and will likely return HTTP 403.\n");
-}
 
 $usernames = array_filter(array_map('trim', explode(',', $env['REDDIT_TARGET_USERNAMES'] ?? '')));
 $perPage = (int) ($env['REDDIT_PER_PAGE'] ?? 100);
@@ -214,6 +239,28 @@ $update = $pdo->prepare(
 $startDelay = $skipDelay ? 0 : random_int(60, 38 * 60);
 echo $skipDelay ? "Reddit: skipping start delay (no-delay override).\n" : "Reddit: waiting {$startDelay}s before first fetch.\n";
 sleep($startDelay);
+
+// Refresh the session cookie now, after the randomized delay, so we send the
+// freshest reddit_session Chrome holds at fetch time rather than one read up to
+// 38 minutes ago at process start. Best-effort: falls back to the cookie stored
+// in .env if Chrome is closed mid write, the keyring is locked (logged out), or
+// the profile/cookie is missing.
+$freshCookie = refreshRedditSessionCookie($root.'/.env', $env);
+if ($freshCookie !== null && $freshCookie !== '') {
+    $env['REDDIT_SESSION_COOKIE'] = $freshCookie;
+}
+
+// Reddit now 403s anonymous requests to the JSON endpoints, so we replay an
+// authenticated browser session cookie. Accept either a bare reddit_session
+// value or a full "name=value; name2=value2" Cookie header; the bare value is
+// the common case so wrap it into reddit_session=... when no '=' is present.
+$sessionCookie = trim($env['REDDIT_SESSION_COOKIE'] ?? '');
+if ($sessionCookie !== '' && strpos($sessionCookie, '=') === false) {
+    $sessionCookie = 'reddit_session='.$sessionCookie;
+}
+if ($sessionCookie === '') {
+    fwrite(STDERR, "Warning: REDDIT_SESSION_COOKIE is empty; Reddit requires an authenticated session and will likely return HTTP 403.\n");
+}
 
 $capturedAt = date('Y-m-d H:i:s');
 $host = 'reddit.com';

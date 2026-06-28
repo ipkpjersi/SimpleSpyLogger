@@ -72,12 +72,19 @@ function refreshRedditSessionCookie(string $envPath, array $env): ?string
     $currentIat = redditSessionCookieIssuedAt($current);
     if ($currentIat !== null && ($chromeIat === null || $chromeIat <= $currentIat)) {
         // Chrome's cookie is the same age or older than ours; keep ours and tell
-        // the caller to use it unchanged.
+        // the caller to use it unchanged. Log the decision (with both issued-at
+        // values) so that when the stored cookie has already been revoked but
+        // Chrome holds no strictly-newer one, the silent fall-back to the stale
+        // cookie -- and the 403 it causes -- is visible in the cron log.
+        $chromeWhen = $chromeIat !== null ? gmdate('Y-m-d H:i:s', $chromeIat) . ' UTC' : 'unknown';
+        $currentWhen = gmdate('Y-m-d H:i:s', $currentIat) . ' UTC';
+        fwrite(STDERR, "[reddit] kept stored reddit_session cookie; Chrome's is not newer (chrome iat=$chromeWhen, stored iat=$currentWhen)\n");
         return $current;
     }
 
     if (writeEnvValue($envPath, 'REDDIT_SESSION_COOKIE', $cookie)) {
-        fwrite(STDERR, "[reddit] refreshed reddit_session cookie from Chrome\n");
+        $chromeWhen = $chromeIat !== null ? gmdate('Y-m-d H:i:s', $chromeIat) . ' UTC' : 'unknown';
+        fwrite(STDERR, "[reddit] refreshed reddit_session cookie from Chrome (issued $chromeWhen)\n");
     } else {
         fwrite(STDERR, "[reddit] decrypted a fresh cookie but failed to write it to .env\n");
     }
