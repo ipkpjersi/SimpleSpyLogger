@@ -62,14 +62,24 @@
                 });
             }
 
-            function renderContent(data, type) {
+            function renderContent(data, type, row) {
                 if (type !== 'display') {
                     return data;
                 }
                 if (data === null || data === undefined || data === '') {
                     return '<span class="text-gray-400 dark:text-gray-500">&mdash;</span>';
                 }
-                const full = String(data);
+                let full = String(data);
+                // Twitter replies begin with the @handles being replied to. Hide
+                // that leading mention run in the inline preview and hover title;
+                // the click-through modal still shows the raw content (rowData.content)
+                // with the mentions intact. Keep the original if stripping empties it.
+                if (row && row.source === 'twitter') {
+                    const stripped = full.replace(/^(?:@\w+\s+)+/, '');
+                    if (stripped !== '') {
+                        full = stripped;
+                    }
+                }
                 const truncated = full.length > 150 ? full.slice(0, 150) + '...' : full;
                 // full is non-empty here, so esc() escapes it for the title attribute too.
                 return '<span class="ssl-content cursor-pointer hover:underline" style="display:inline-block;max-width:32rem;vertical-align:top;white-space:normal;word-break:break-word;overflow-wrap:anywhere;" title="' + esc(full) + '">' + esc(truncated) + '</span>';

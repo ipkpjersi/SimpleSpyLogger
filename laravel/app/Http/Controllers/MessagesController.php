@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ExternalUser;
 use App\Models\Message;
 use DataTables;
 use Illuminate\Http\Request;
@@ -133,6 +134,17 @@ class MessagesController extends Controller
             'payload',
         ]);
 
+        // Twitter DM partners that resolved to no username (deleted/suspended/
+        // protected) so the channel column can annotate them "(deleted)" at
+        // display time without storing that text. Small set, loaded once/request.
+        $deletedTwitterIds = array_flip(
+            ExternalUser::query()
+                ->where('source', 'twitter')
+                ->whereNull('username')
+                ->pluck('external_id')
+                ->all()
+        );
+
         return DataTables::of($query)
             ->addColumn('url', fn ($m) => $m->url)
             // RSCPlus rows share one sent_at per session (the log only carries
@@ -141,6 +153,16 @@ class MessagesController extends Controller
             ->orderColumn('sent_at', 'sent_at $1, id $1')
             ->editColumn('sent_at', function ($m) {
                 return $m->sent_at?->format('Y-m-d H:i:s');
+            })
+            // Annotate a DM whose partner is a known-deleted account. channel_name
+            // stores the bare id; the "(deleted)" marker is display-only.
+            ->editColumn('channel_name', function ($m) use ($deletedTwitterIds) {
+                $name = (string) $m->channel_name;
+                if ($m->source === 'twitter' && $name !== '' && isset($deletedTwitterIds[$name])) {
+                    return e($name).' (deleted)';
+                }
+
+                return e($name);
             })
             ->escapeColumns([])
             ->make(true);

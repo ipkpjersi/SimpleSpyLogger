@@ -68,6 +68,16 @@ class Message extends Model
 
                 return 'https://www.reddit.com'.$permalink;
 
+            case 'twitter':
+                // DMs are private and have no public web URL; tweets link to the
+                // author's status page. Need both the handle and the tweet id.
+                $kind = $payload['kind'] ?? null;
+                if ($kind === 'dm' || ($this->author_username ?? '') === '' || ($this->external_id ?? '') === '') {
+                    return null;
+                }
+
+                return "https://x.com/{$this->author_username}/status/{$this->external_id}";
+
             case 'lemmy':
                 // ap_id is the canonical ActivityPub URL of the comment. Require
                 // an http(s) scheme so a malformed value can't become a link.

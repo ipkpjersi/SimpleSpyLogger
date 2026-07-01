@@ -9,5 +9,18 @@ sources/*/.env
 
 # Per-run summary log written by sources/notifier.php::log_import_summary().
 sources/import.log
-.claude/crontab.backup.20260531.txt
+.claude/crontab.backup.*.txt
 sources/reddit/cron.log
+sources/twitter/cron.log
+
+# Twitter scraper's per-UTC-day read ledger (local dedup state for cost tracking).
+sources/twitter/.read_ledger.json
+
+# Twitter/X account data-export archives fed to import_archive.php. These are
+# large (hundreds of MB to gigabytes) and contain personal data, so they are
+# never committed; point import_archive.php at them locally instead.
+sources/twitter/*.zip
+
+# Raw credential dumps copied out of the X developer portal (Client ID/Secret,
+# access/refresh tokens). Secret, never committed.
+sources/twitter/oauth2-*.txt
