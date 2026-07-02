@@ -48,6 +48,10 @@ $root = __DIR__;
 // terminal runs leave REDDIT_CRON_LOG unset and are completely unaffected.
 $cronLog = (string) (getenv('REDDIT_CRON_LOG') ?: '');
 if ($cronLog !== '') {
+    // Apply APP_TIMEZONE up front (it is set again for real below) so the run
+    // header prints in the same local time as the stored timestamps rather than
+    // the UTC default that applies before the env is loaded.
+    date_default_timezone_set(load_env($root.'/.env')['APP_TIMEZONE'] ?? 'UTC');
     echo '=== reddit '.date('Y-m-d H:i:s O')." ===\n";
     register_shutdown_function(static function () use ($cronLog) {
         $maxLines = (int) (getenv('REDDIT_CRON_LOG_MAX_LINES') ?: 2000);
