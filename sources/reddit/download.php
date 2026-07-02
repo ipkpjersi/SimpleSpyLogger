@@ -44,7 +44,8 @@ $root = __DIR__;
 // header prints or any timestamp is stored, so the header and every stored date
 // share one local timezone (APP_TIMEZONE). load_env is hoisted, so it is safe to
 // call here even though it is defined further down.
-$env = load_env($root.'/.env');
+$envPath = $root.'/.env';
+$env = load_env($envPath);
 date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
 
 // When invoked from cron the shell redirects this script's output into a rolling
@@ -248,7 +249,7 @@ sleep($startDelay);
 // 38 minutes ago at process start. Best-effort: falls back to the cookie stored
 // in .env if Chrome is closed mid write, the keyring is locked (logged out), or
 // the profile/cookie is missing.
-$freshCookie = refreshRedditSessionCookie($root.'/.env', $env);
+$freshCookie = refreshRedditSessionCookie($envPath, $env);
 if ($freshCookie !== null && $freshCookie !== '') {
     $env['REDDIT_SESSION_COOKIE'] = $freshCookie;
 }
