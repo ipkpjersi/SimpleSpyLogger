@@ -39,12 +39,16 @@
 
 $root = __DIR__;
 
+// Load config and apply the configured timezone up front, before the cron-log
+// header prints or any timestamp is stored, so the header and every stored date
+// share one local timezone (APP_TIMEZONE). load_env is hoisted, so it is safe to
+// call here even though it is defined further down.
+$envPath = $root.'/.env';
+$env = load_env($envPath);
+date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
+
 $cronLog = (string) (getenv('TWITTER_CRON_LOG') ?: '');
 if ($cronLog !== '') {
-    // Apply APP_TIMEZONE up front (it is set again for real below) so the run
-    // header prints in the same local time as the stored timestamps rather than
-    // the UTC default that applies before the env is loaded.
-    date_default_timezone_set(load_env(__DIR__.'/.env')['APP_TIMEZONE'] ?? 'UTC');
     echo '=== twitter '.date('Y-m-d H:i:s O')." ===\n";
     register_shutdown_function(static function () use ($cronLog) {
         $maxLines = (int) (getenv('TWITTER_CRON_LOG_MAX_LINES') ?: 2000);
@@ -138,10 +142,6 @@ function api_get(string $baseUrl, array $queryParams, string $accessToken): arra
 
     return ['ok' => $code < 400, 'code' => $code, 'body' => (string) $resp, 'error' => null];
 }
-
-$envPath = $root.'/.env';
-$env = load_env($envPath);
-date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
 
 if (in_array($argv[1] ?? '', ['test-alert', '--test-alert', 'test'], true)) {
     $stamp = date('Y-m-d H:i:s');

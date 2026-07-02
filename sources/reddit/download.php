@@ -40,6 +40,13 @@
 
 $root = __DIR__;
 
+// Load config and apply the configured timezone up front, before the cron-log
+// header prints or any timestamp is stored, so the header and every stored date
+// share one local timezone (APP_TIMEZONE). load_env is hoisted, so it is safe to
+// call here even though it is defined further down.
+$env = load_env($root.'/.env');
+date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
+
 // When invoked from cron the shell redirects this script's output into a rolling
 // log file whose path is passed in the REDDIT_CRON_LOG env var. In that case
 // print a timestamped header so each run is delimited, and register a shutdown
@@ -48,10 +55,6 @@ $root = __DIR__;
 // terminal runs leave REDDIT_CRON_LOG unset and are completely unaffected.
 $cronLog = (string) (getenv('REDDIT_CRON_LOG') ?: '');
 if ($cronLog !== '') {
-    // Apply APP_TIMEZONE up front (it is set again for real below) so the run
-    // header prints in the same local time as the stored timestamps rather than
-    // the UTC default that applies before the env is loaded.
-    date_default_timezone_set(load_env($root.'/.env')['APP_TIMEZONE'] ?? 'UTC');
     echo '=== reddit '.date('Y-m-d H:i:s O')." ===\n";
     register_shutdown_function(static function () use ($cronLog) {
         $maxLines = (int) (getenv('REDDIT_CRON_LOG_MAX_LINES') ?: 2000);
@@ -136,10 +139,6 @@ function http_get(string $url, string $userAgent, string $cookie = ''): array
 
     return ['ok' => $code < 400, 'code' => $code, 'body' => (string) $resp, 'error' => null];
 }
-
-$env = load_env($root.'/.env');
-
-date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
 
 // Quick end-to-end check of the alert channels without scraping or touching
 // the DB: `php download.php test-alert`. Fires send_alert() and reports which
