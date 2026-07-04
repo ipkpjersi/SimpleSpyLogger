@@ -33,7 +33,7 @@
  * can report "0 new DMs" while replies are plainly visible in the browser. This
  * is an X platform limitation, not a bug: the plaintext only exists on-device
  * after PIN decryption, so a server-side API cannot see it. X has said XChat API
- * support is being explored (dev forum, an official dev 2026-02-02: "The DM
+ * support is being explored (dev forum, 2026-02-02: "The DM
  * endpoints for the X API v2 currently do not support XChat (encrypted)
  * messages"), with no timeline. Until then the only way to capture encrypted DMs
  * is client-side (a userscript on a PIN-unlocked x.com session). See the same
