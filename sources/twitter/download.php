@@ -25,6 +25,20 @@
  *   DMs    - GET /2/dm_events (newest first); paginate until we reach an event
  *            id already in the DB, then stop. The archive import covers older DMs.
  *
+ * KNOWN LIMITATION - encrypted DMs are invisible here: X's XChat end-to-end
+ * encrypted conversations (the "Conversation upgraded"/"now end-to-end
+ * encrypted" banner, common between Verified accounts) are NOT returned by
+ * /2/dm_events. The endpoint responds 200 OK with the older plaintext history
+ * but silently omits the encrypted messages from the JSON - no error, so a run
+ * can report "0 new DMs" while replies are plainly visible in the browser. This
+ * is an X platform limitation, not a bug: the plaintext only exists on-device
+ * after PIN decryption, so a server-side API cannot see it. X has said XChat API
+ * support is being explored (dev forum, an official dev 2026-02-02: "The DM
+ * endpoints for the X API v2 currently do not support XChat (encrypted)
+ * messages"), with no timeline. Until then the only way to capture encrypted DMs
+ * is client-side (a userscript on a PIN-unlocked x.com session). See the same
+ * note in .env.example next to TWITTER_SCRAPE_DMS.
+ *
  * The upsert is identical to import_archive.php: existing rows are skipped (or
  * revision-tracked if the body changed), never duplicated.
  *
@@ -161,10 +175,12 @@ $scrapeDms = env_bool($env, 'TWITTER_SCRAPE_DMS', true);
 $maxTweets = max(1, (int) ($env['TWITTER_MAX_TWEETS_PER_RUN'] ?? 100));
 
 // DM events fetched per page. The DM endpoint has no since_id, so each run must
-// read the newest page to detect new DMs and is billed per event returned. A
-// smaller page caps that "just checking" cost; new DMs beyond one page are
-// picked up by pagination. Range 1-100.
-$dmMaxResults = max(1, min(100, (int) ($env['TWITTER_DM_MAX_RESULTS'] ?? 15)));
+// read the newest page to detect new DMs and is billed per event returned. The
+// loop below pages newest-first and stops as soon as it reaches a DM already in
+// the DB, so 1 is the cheapest steady state (a quiet run reads only the single
+// newest event, confirms we already have it, and stops); a burst of new DMs is
+// picked up one single-event page at a time. Range 1-100.
+$dmMaxResults = max(1, min(100, (int) ($env['TWITTER_DM_MAX_RESULTS'] ?? 1)));
 
 // Per-resource read prices for the estimated-cost line in the logs (X
 // pay-per-use). Overridable in case X changes pricing. Reading our own posts via
@@ -578,13 +594,19 @@ foreach ($accounts as $acct) {
             $events = $data['data'] ?? [];
             // Every DM event the API returns is billed (DM Event: Read), whether
             // or not it is new to us. Count all returned as gross reads, and mark
-            // each as billable only the first time it is seen this UTC day.
+            // each as billable only the first time it is seen this UTC day. This
+            // billing pass runs over the whole returned page up front so that
+            // breaking out of processing early (as soon as we reach a DM we
+            // already stored) never under-counts what X charged us for the full
+            // page it returned.
             $dmRead += count($events);
             foreach ($events as $ev) {
-                $evId = (string) ($ev['id'] ?? '');
-                if ($billable($evId)) {
+                if ($billable((string) ($ev['id'] ?? ''))) {
                     $dmBilledForAcct++;
                 }
+            }
+            foreach ($events as $ev) {
+                $evId = (string) ($ev['id'] ?? '');
                 if (($ev['event_type'] ?? '') !== 'MessageCreate' || $evId === '') {
                     continue;
                 }
@@ -621,9 +643,13 @@ foreach ($accounts as $acct) {
                     if ($result === 'inserted') {
                         $dmInserted++;
                     } else {
-                        // Already have this event; newest-first means everything
-                        // beyond here is older and known, so stop paging.
+                        // Reached a DM we already have (or an edit of one we
+                        // have). Newest-first ordering guarantees everything past
+                        // here is older and already stored, so stop immediately:
+                        // break out of this page and skip fetching (and paying
+                        // for) any further pages.
                         $caughtUp = true;
+                        break;
                     }
                 } catch (PDOException $e) {
                     fwrite(STDERR, "$label: skipped DM {$ev['id']}: ".$e->getMessage()."\n");

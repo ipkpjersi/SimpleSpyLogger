@@ -124,6 +124,12 @@ echo "2. Approve access. Your browser will redirect to\n";
 echo "   $redirectUri/?code=...&state=...  (it may show a 'cannot connect' page;\n";
 echo "   that is fine - the code is in the address bar).\n\n";
 echo "3. Paste the FULL redirected URL (or just the code) below.\n\n";
+echo "   IMPORTANT: the authorization code expires about 30 seconds after you\n";
+echo "   approve, so copy and paste it immediately. If the redirect target is a\n";
+echo "   live server that rewrites the address bar, grab the code/URL from the\n";
+echo "   browser Network tab (the request to $redirectUri) right away instead.\n";
+echo "   An expired or already-used code fails with HTTP 400 'invalid'; if that\n";
+echo "   happens, just re-run this to mint a fresh one.\n\n";
 
 $input = prompt('Redirected URL or code: ');
 if ($input === '') {
