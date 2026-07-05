@@ -1,30 +1,42 @@
 # SimpleSpyLogger
 
-A **multi-source** chat logger with a satirical project name. A small Laravel + MySQL app exposes a single
-ingest API; one or more clients ("agents") POST messages to it from whatever
-service they can see. The first agent is a BetterDiscord plugin; 
-RSCPlus and other agents are sketched below.
+A **multi-source** chat logger with a satirical project name. A small Laravel + MySQL app
+stores every message; one or more standalone clients ("agents") feed it from whatever service
+they can see. Five agents are implemented today: a BetterDiscord plugin (Discord) plus PHP
+scrapers for Reddit, Lemmy, RSCPlus and Twitter/X.
 
 ```
 SimpleSpyLogger/
   laravel/                  # Laravel app (based on laravel-breeze-starter): API + migrations + models
   sources/                  # One subfolder per agent. Folder name describes the implementation,
-    betterdiscord/          # not the `source` column value. Add more as needed:
-                            # e.g. sources/lemmy/, sources/rscplus/.
+    betterdiscord/          #   not the `source` column value.
+    reddit/                 # PHP scraper (writes to the DB directly via PDO)
+    lemmy/                  # PHP scraper
+    rscplus/                # PHP scraper
+    twitter/                # PHP scraper (OAuth2 API top-up + archive import)
 ```
 
 ## Architecture
 
+There are two ways data reaches the `messages` table:
+
 ```
-  BD plugin      (source=discord)   -->  POST /api/messages/ingest  -->  MySQL
-  Lemmy script (source=lemmy)   -->  POST /api/messages/ingest  -->  MySQL
-  RSCPlus client (source=rscplus)   -->  POST /api/messages/ingest  -->  MySQL
+  BD plugin       (source=discord)   -->  POST /api/messages/ingest  -->  MySQL
+  reddit scraper  (source=reddit)    -->  PDO upsert                 -->  MySQL
+  lemmy scraper   (source=lemmy)     -->  PDO upsert                 -->  MySQL
+  rscplus scraper (source=rscplus)   -->  PDO upsert                 -->  MySQL
+  twitter scraper (source=twitter)   -->  PDO upsert                 -->  MySQL
 ```
 
-Every agent sends the **same payload shape**, distinguished only by a `source` string identifying the app. 
-The Laravel site doesn't know or care who's sending data - it just upserts the data to our db.
-We could technically make most agents run within the Laravel site itself, but having them be
-standalone makes them not require having Laravel installed to run which is helpful.
+The BetterDiscord plugin runs inside Discord (no PHP available), so it POSTs the generic
+event payload to the token-authenticated ingest API. The four PHP scrapers run on a box that
+already has DB access, so they skip the HTTP hop and upsert straight into the `messages` table
+via PDO. Either way the row shape is identical, distinguished only by a `source` string.
+Each PHP scraper reads its own `sources/<name>/.env` (copy from the adjacent `.env.example`)
+for DB credentials and source-specific settings.
+
+The Laravel site doesn't know or care who wrote a row - it just displays whatever is in the table.
+Keeping the agents standalone means they don't require a full Laravel install to run.
 
 ## Database schema
 
@@ -134,79 +146,61 @@ Response: `{ "ok": true, "stats": { "created": N, "updated": N, "deleted": N, "s
 generic events with `source: "discord"`. Settings: API URL, token, batch knobs,
 **excluded user IDs**, **excluded guild IDs**, enable toggle.
 
-### Twitter - not implemented, contract below
+### Reddit (PHP scraper) - included
 
-Likely shapes for a future Twitter agent (browser extension or Twitter API client):
+`sources/reddit/download.php`. Fetches the latest comments for the configured Reddit
+user(s) via the `user/<name>.json` endpoint and upserts them with `source: "reddit"`.
+Reddit returns 403 for anonymous requests to these endpoints as of 2026, so an
+authenticated browser session cookie (`REDDIT_SESSION_COOKIE`) is required; the scraper
+can auto-refresh it from the live Chrome profile (`refresh_cookie.php`) before each run,
+which is why its cron line needs the desktop D-Bus session exported (see the header comment
+in `download.php`). Mapping: subreddit -> container, post -> channel, commenter -> author.
+Single request per user per run (most recent `REDDIT_PER_PAGE` comments, up to 100; no
+historical backfill).
 
-```jsonc
-{
-  "source": "twitter",
-  "events": [
-    {
-      "type": "create",
-      "captured_at": "...",
-      "message": {
-        "external_id": "1825xxxxxxxxxx",     // tweet ID
-        "container_external_id": null,       // Twitter has no "server"
-        "channel_external_id": null,         // or conversation_id for threads / DM
-        "visibility": "public",              // "private" for DMs
-        "author_external_id": "44196397",
-        "author_username": "elonmusk",
-        "author_display_name": "Elon Musk",
-        "author_bot": false,
-        "content": "tweet text",
-        "referenced_external_id": "1824xxxxxxxxxx",  // reply/quote target
-        "sent_at": "...",
-        "payload": {
-          "kind": "tweet" | "retweet" | "quote" | "reply" | "dm",
-          "media": [...],
-          "entities": { ... },
-          "metrics": { "likes": N, "retweets": N, ... }
-        }
-      }
-    }
-  ]
-}
-```
+### Lemmy (PHP scraper) - included
 
-### RSCPlus - not implemented, contract below
+`sources/lemmy/download.php`. Fetches every comment for the configured Lemmy user(s)
+through the instance's `/api/v3` endpoint and upserts them with `source: "lemmy"`. The
+Lemmy API is public, so unlike Reddit no cookie or keyring/D-Bus is involved - a plain cron
+line is enough. Mapping: community -> container, post -> channel, commenter -> author.
 
-OpenRSC chat is split into channel "types" (public, private, clan, trade,
-dueling) per world. A future agent would hook the chat dispatch path in the
-RSCPlus client (or read server-side log tables) and emit:
+### RSCPlus (PHP scraper) - included
 
-```jsonc
-{
-  "source": "rscplus",
-  "events": [
-    {
-      "type": "create",
-      "captured_at": "...",
-      "message": {
-        "external_id": "preservation:8429371",  // world + monotonic seq, or hash
-        "container_external_id": "preservation", // world: preservation/cabbage/openpk/2001scape/uranium/coleslaw
-        "container_name": "Preservation",
-        "channel_external_id": "private",        // public | private | clan | trade | dueling | global
-        "channel_name": "Private message",
-        "visibility": "private",                 // private/clan/dueling -> private, public/trade/global -> public
-        "author_external_id": "Zezima",          // RSC has no numeric user ID, use username
-        "author_username": "Zezima",
-        "author_display_name": null,
-        "author_bot": false,
-        "content": "hi",
-        "referenced_external_id": null,          // RSC has no replies
-        "sent_at": "...",
-        "payload": {
-          "recipient": "Ken",                    // for PMs
-          "chat_color": 0,
-          "world_revision": 38,
-          "x": 220, "y": 451                     // for in-world public chat
-        }
-      }
-    }
-  ]
-}
-```
+`sources/rscplus/download.php`. Reads the most recently modified `*.log` file in the RSCPlus
+logs folder (`RSCPLUS_LOGS_DIR`) and upserts public chat, global chat and private-message
+lines with `source: "rscplus"`. Friend login/logout notices are skipped. RSCPlus chat logs
+have no per-line timestamps, so `sent_at` is taken from the session-start time encoded in the
+log filename; `external_id` is a stable `world:sha256(logfile#line#raw)` so re-running on a
+growing log is idempotent. Mapping: world (`RSCPLUS_WORLD`, e.g. preservation/cabbage/openpk/
+2001scape/uranium/coleslaw) -> container, chat type (public/global/private) -> channel,
+speaker -> author. Private/clan/dueling map to `visibility: private`, public/trade/global to
+`public`.
+
+As noted below, the client only ever sees your own PMs (in and out), never other players' PMs
+to each other; those would require a server-side hook on a world you operate.
+
+### Twitter/X (PHP scraper) - included
+
+Two scripts under `sources/twitter/`:
+
+- `import_archive.php` - one-time backfill of a downloaded X data archive (tweets + DMs).
+- `download.php` - incremental "top-up" that pulls anything newer than what's already stored
+  via the X API v2 and upserts it with `source: "twitter"`. Auth is OAuth 2.0 Authorization
+  Code with PKCE using read-only scopes (`tweet.read`, `users.read`, `dm.read`,
+  `offline.access`); each account is authorized once via `oauth2_authorize.php`, which stores
+  a rotating refresh token in `.env`. Configure any number of accounts as `TWITTER_A1_*`,
+  `TWITTER_A2_*`, ... Runs at most a couple of times a day since reads are billed per tweet.
+
+**Known limitation:** X's XChat end-to-end encrypted DMs are not returned by `/2/dm_events`
+(the endpoint 200s with older plaintext history but silently omits encrypted messages), so a
+run can report "0 new DMs" while replies are visible in the browser. This is an X platform
+limitation - capturing those would require a client-side userscript on a PIN-unlocked session.
+See the note next to `TWITTER_SCRAPE_DMS` in `.env.example`.
+
+Tweet mapping: tweet ID -> `external_id`, no container (Twitter has no "server"),
+conversation/DM thread -> channel, author handle -> author; `payload` carries the tweet
+`kind` (tweet/retweet/quote/reply/dm), media, entities and metrics.
 
 ## Setup
 
@@ -269,12 +263,29 @@ and paste:
 The plugin sends batches every `batchIntervalMs` (default 25s) or whenever the
 queue hits `maxBatchSize` (default 100).
 
+### PHP scrapers (reddit / lemmy / rscplus / twitter)
+
+Each lives in its own `sources/<name>/` folder and runs standalone under any PHP CLI
+with PDO + curl - no Laravel needed. Copy `.env.example` to `.env` in that folder, fill in
+the DB credentials and source-specific settings, then:
+
+```bash
+php sources/lemmy/download.php     # one manual run
+```
+
+Most take `no-delay` (skip the randomized start delay for manual/test runs) and are meant to
+run from cron. See the header comment in each `download.php` for the exact cron line - Reddit
+in particular needs the desktop D-Bus session exported so it can refresh its cookie from the
+keyring; the others are plain cron lines. Twitter additionally needs a one-time
+`oauth2_authorize.php` per account and, optionally, `import_archive.php` to backfill history
+before the first `download.php` top-up.
+
 ## Heads-up
 
 - Logging messages other users send you (or post in shared servers) without
   their knowledge has obvious privacy implications and is against Discord's ToS
   for self-bots / scrapers. Treat the data accordingly.
-- Same applies to any future Twitter / RSCPlus agents. Note that the RSCPlus
+- Same applies to the Reddit, Lemmy, Twitter and RSCPlus agents. Note that the RSCPlus
   client can only capture private messages it actually receives or sends - i.e.
   PMs to/from you. Other players' PMs to each other are never delivered to your
   client and so cannot be logged from this side; capturing those would require
