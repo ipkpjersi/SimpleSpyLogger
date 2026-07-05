@@ -172,8 +172,7 @@ logs folder (`RSCPLUS_LOGS_DIR`) and upserts public chat, global chat and privat
 lines with `source: "rscplus"`. Friend login/logout notices are skipped. RSCPlus chat logs
 have no per-line timestamps, so `sent_at` is taken from the session-start time encoded in the
 log filename; `external_id` is a stable `world:sha256(logfile#line#raw)` so re-running on a
-growing log is idempotent. Mapping: world (`RSCPLUS_WORLD`, e.g. preservation/cabbage/openpk/
-2001scape/uranium/coleslaw) -> container, chat type (public/global/private) -> channel,
+growing log is idempotent. Mapping: world (`RSCPLUS_WORLD`, e.g. preservation/cabbage/etc) -> container, chat type (public/global/private) -> channel,
 speaker -> author. Private/clan/dueling map to `visibility: private`, public/trade/global to
 `public`.
 
@@ -289,7 +288,7 @@ before the first `download.php` top-up.
   client can only capture private messages it actually receives or sends - i.e.
   PMs to/from you. Other players' PMs to each other are never delivered to your
   client and so cannot be logged from this side; capturing those would require
-  a server-side hook on an OpenRSC world you operate, not a client agent. 
+  a server-side hook on a server you operate, not a client agent. 
   That would be beyond the scope of this project, this project is about your 
   messages and any public messages.
   Public/clan/trade/global chat the client does see is fair game for logging.
