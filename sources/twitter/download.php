@@ -63,7 +63,7 @@ date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
 
 $cronLog = (string) (getenv('TWITTER_CRON_LOG') ?: '');
 if ($cronLog !== '') {
-    echo '=== twitter '.date('Y-m-d H:i:s O')." ===\n";
+    echo '=== twitter '.date('Y-m-d H:i:s O').' pid '.getmypid()." ===\n";
     register_shutdown_function(static function () use ($cronLog) {
         $maxLines = (int) (getenv('TWITTER_CRON_LOG_MAX_LINES') ?: 2000);
         if ($maxLines < 1) {
@@ -372,6 +372,27 @@ $upsert = static function (array $row) use ($pdo, $lookup, $insert, $revision, $
     return 'exists';
 };
 
+// Prevent concurrent token-refreshing runs. A second run (another cron fire, or
+// a manual download.php / resolve_users.php) overlapping this one would race on
+// X's single-use OAuth refresh token and on the .env read-modify-write, which
+// can strand a rotated token and permanently invalidate an account. Acquired
+// before the randomized start delay below so the lock is held for the whole run
+// window, and released automatically when this process exits.
+$lockPath = $root.'/.twitter.lock';
+// Durable, append-only record of every token change from any script/invocation.
+$auditPath = (string) ($env['TWITTER_REFRESH_AUDIT_LOG'] ?? $root.'/refresh_audit.log');
+$lock = twitter_lock($lockPath);
+if ($lock === false) {
+    // Concurrency detected: another token-refreshing run was already active.
+    // Audit it durably (a prime suspect for stranded tokens) before bowing out.
+    $holderPid = twitter_lock_holder_pid($lockPath);
+    echo "Twitter: another twitter run (pid $holderPid) holds the lock ($lockPath); exiting without running.\n";
+    twitter_audit($auditPath, 'lock_contended', ['script' => 'download', 'blocked_pid' => getmypid(), 'holder_pid' => $holderPid]);
+    exit(0);
+}
+echo 'Twitter: acquired run lock (pid '.getmypid().").\n";
+twitter_audit($auditPath, 'run_start', ['script' => 'download', 'holder_pid' => getmypid()]);
+
 // Randomized start so cron runs don't hit the API on the exact minute.
 $startDelay = $skipDelay ? 0 : random_int(30, 20 * 60);
 echo $skipDelay ? "Twitter: skipping start delay (no-delay override).\n" : "Twitter: waiting {$startDelay}s before first fetch.\n";
@@ -407,16 +428,25 @@ foreach ($accounts as $acct) {
         sleep($pause);
     }
 
+    // Log the token we are about to send (safe fingerprint, never the secret)
+    // and the .env mtime, so the cron log proves whether this run used a freshly
+    // rotated token or reused a stale one, and whether two runs overlapped on the
+    // same token. See twitter_token_fingerprint().
+    $envMtime = is_file($envPath) ? date('Y-m-d H:i:s O', filemtime($envPath)) : 'n/a';
+    $sentFp = twitter_token_fingerprint($acct['refresh_token']);
+    echo sprintf("Twitter: %s - refreshing with %s (.env mtime %s).\n", $label, $sentFp, $envMtime);
+
     // Exchange the stored refresh token for a fresh access token. X rotates the
     // refresh token, so persist the new one to .env immediately - the old one is
     // now invalid and next run must use the new one.
     $refresh = twitter_oauth2_refresh($acct['refresh_token'], $acct['client_id'], $acct['client_secret']);
     if (! $refresh['ok'] || empty($refresh['data']['access_token'])) {
         $detail = 'HTTP '.$refresh['code'].($refresh['error'] ? ' '.$refresh['error'] : '');
-        fwrite(STDERR, "$label: token refresh failed ($detail): ".mb_substr($refresh['raw'], 0, 200)."\n");
+        fwrite(STDERR, "$label: token refresh failed ($detail) using $sentFp: ".mb_substr($refresh['raw'], 0, 200)."\n");
+        twitter_audit($auditPath, 'refresh_fail', ['script' => 'download', 'acct' => 'A'.$acct['slot'], 'sent' => $sentFp, 'result' => $detail]);
         $failures[] = [
             'account' => $acct['username'],
-            'error' => 'token refresh failed: '.$detail,
+            'error' => 'token refresh failed: '.$detail.' (sent '.$sentFp.')',
             'body_excerpt' => mb_substr($refresh['raw'], 0, 300),
         ];
         continue;
@@ -424,9 +454,21 @@ foreach ($accounts as $acct) {
     $accessToken = (string) $refresh['data']['access_token'];
     if (! empty($refresh['data']['refresh_token'])) {
         $p = "TWITTER_A{$acct['slot']}_";
-        if (! twitter_env_set($envPath, $p.'REFRESH_TOKEN', (string) $refresh['data']['refresh_token'])) {
-            fwrite(STDERR, "$label: WARNING - could not persist rotated refresh token to .env; next run may fail.\n");
+        $newFp = twitter_token_fingerprint((string) $refresh['data']['refresh_token']);
+        $persisted = twitter_env_set($envPath, $p.'REFRESH_TOKEN', (string) $refresh['data']['refresh_token']);
+        if (! $persisted) {
+            fwrite(STDERR, "$label: WARNING - could not persist rotated refresh token ($newFp) to .env; next run may fail.\n");
+        } else {
+            echo "Twitter: $label - rotated refresh token to $newFp, persisted to .env.\n";
         }
+        twitter_audit($auditPath, 'refresh_ok', ['script' => 'download', 'acct' => 'A'.$acct['slot'], 'sent' => $sentFp, 'new' => $newFp, 'persist' => $persisted ? 'ok' : 'FAILED']);
+    } else {
+        // X returned an access token but no new refresh token. If X still rotated
+        // (invalidated) the old one server-side, the next run would find the
+        // stored token dead - so record this explicitly as a prime suspect to
+        // check against the next failure.
+        fwrite(STDERR, "$label: WARNING - refresh response contained NO new refresh token; reusing the existing one. If the next run fails auth, this is why.\n");
+        twitter_audit($auditPath, 'refresh_no_new_token', ['script' => 'download', 'acct' => 'A'.$acct['slot'], 'sent' => $sentFp]);
     }
 
     // --- Tweets: only what is newer than the newest tweet we already hold. ---

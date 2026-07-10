@@ -53,6 +53,10 @@ $envPath = $root.'/.env';
 $env = load_env($envPath);
 date_default_timezone_set($env['APP_TIMEZONE'] ?? 'UTC');
 
+// Durable, append-only record of every token change from any script/invocation
+// (shared with download.php); read this first when a token goes invalid.
+$auditPath = (string) ($env['TWITTER_REFRESH_AUDIT_LOG'] ?? $root.'/refresh_audit.log');
+
 $dryRun = in_array($argv[1] ?? '', ['dry-run', '--dry-run'], true);
 $costPerUser = (float) ($env['TWITTER_COST_PER_USER_READ'] ?? 0.010);
 
@@ -103,6 +107,22 @@ if ($dryRun) {
 }
 
 if ($toResolve) {
+    // Prevent running while a token-refreshing twitter run (download.php, or
+    // another resolve_users.php) is in progress: concurrent runs race on X's
+    // single-use OAuth refresh token and the .env read-modify-write and can
+    // permanently invalidate an account. Held until this process exits. Only the
+    // refresh below needs protecting; a dry-run has already exited above, and the
+    // channel_name backfill further down touches no tokens.
+    $lockPath = $root.'/.twitter.lock';
+    $lock = twitter_lock($lockPath);
+    if ($lock === false) {
+        $holderPid = twitter_lock_holder_pid($lockPath);
+        fwrite(STDERR, "Another twitter run (pid $holderPid) is in progress (holds .twitter.lock); try again shortly.\n");
+        twitter_audit($auditPath, 'lock_contended', ['script' => 'resolve_users', 'blocked_pid' => getmypid(), 'holder_pid' => $holderPid]);
+        exit(1);
+    }
+    twitter_audit($auditPath, 'run_start', ['script' => 'resolve_users', 'holder_pid' => getmypid()]);
+
     // Acquire an access token from the first configured account (any user-context
     // token can look up public users). Persist the rotated refresh token.
     $accessToken = null;
@@ -111,14 +131,31 @@ if ($toResolve) {
         if (empty($env[$p.'CLIENT_ID']) || empty($env[$p.'CLIENT_SECRET']) || empty($env[$p.'REFRESH_TOKEN'])) {
             continue;
         }
+        // Fingerprint + .env mtime logging mirrors download.php so a token
+        // stranded by either script is diagnosable from its output and the audit.
+        $envMtime = is_file($envPath) ? date('Y-m-d H:i:s O', filemtime($envPath)) : 'n/a';
+        $sentFp = twitter_token_fingerprint((string) $env[$p.'REFRESH_TOKEN']);
+        fwrite(STDERR, "A{$i}: refreshing with $sentFp (.env mtime $envMtime).\n");
         $refresh = twitter_oauth2_refresh($env[$p.'REFRESH_TOKEN'], $env[$p.'CLIENT_ID'], $env[$p.'CLIENT_SECRET']);
         if (! $refresh['ok'] || empty($refresh['data']['access_token'])) {
-            fwrite(STDERR, "Token refresh failed for A{$i} (HTTP {$refresh['code']}); trying next account.\n");
+            $detail = 'HTTP '.$refresh['code'].($refresh['error'] ? ' '.$refresh['error'] : '');
+            fwrite(STDERR, "Token refresh failed for A{$i} ($detail) using $sentFp; trying next account.\n");
+            twitter_audit($auditPath, 'refresh_fail', ['script' => 'resolve_users', 'acct' => 'A'.$i, 'sent' => $sentFp, 'result' => $detail]);
             continue;
         }
         $accessToken = (string) $refresh['data']['access_token'];
         if (! empty($refresh['data']['refresh_token'])) {
-            twitter_env_set($envPath, $p.'REFRESH_TOKEN', (string) $refresh['data']['refresh_token']);
+            $newFp = twitter_token_fingerprint((string) $refresh['data']['refresh_token']);
+            $persisted = twitter_env_set($envPath, $p.'REFRESH_TOKEN', (string) $refresh['data']['refresh_token']);
+            if (! $persisted) {
+                fwrite(STDERR, "A{$i}: WARNING - could not persist rotated refresh token ($newFp) to .env; next run may fail.\n");
+            } else {
+                fwrite(STDERR, "A{$i}: rotated refresh token to $newFp, persisted to .env.\n");
+            }
+            twitter_audit($auditPath, 'refresh_ok', ['script' => 'resolve_users', 'acct' => 'A'.$i, 'sent' => $sentFp, 'new' => $newFp, 'persist' => $persisted ? 'ok' : 'FAILED']);
+        } else {
+            fwrite(STDERR, "A{$i}: WARNING - refresh response contained NO new refresh token; reusing the existing one. If the next run fails auth, this is why.\n");
+            twitter_audit($auditPath, 'refresh_no_new_token', ['script' => 'resolve_users', 'acct' => 'A'.$i, 'sent' => $sentFp]);
         }
     }
     if ($accessToken === null) {

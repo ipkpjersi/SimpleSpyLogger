@@ -172,10 +172,15 @@ if (! $resp['ok'] || ! isset($resp['data']['refresh_token'])) {
 $refreshToken = (string) $resp['data']['refresh_token'];
 $grantedScope = (string) ($resp['data']['scope'] ?? '');
 
+$auditPath = (string) ($env['TWITTER_REFRESH_AUDIT_LOG'] ?? $root.'/refresh_audit.log');
 if (! twitter_env_set($envPath, $p.'REFRESH_TOKEN', $refreshToken)) {
     fwrite(STDERR, "Got a refresh token but failed to write it to $envPath. Add manually:\n{$p}REFRESH_TOKEN=$refreshToken\n");
+    twitter_audit($auditPath, 'authorize_mint', ['acct' => 'A'.$index, 'new' => twitter_token_fingerprint($refreshToken), 'persist' => 'FAILED']);
     exit(1);
 }
+// Record the manual re-auth in the shared audit timeline so a freshly minted
+// token is never mistaken for an unexplained token change on the next run.
+twitter_audit($auditPath, 'authorize_mint', ['acct' => 'A'.$index, 'new' => twitter_token_fingerprint($refreshToken), 'persist' => 'ok']);
 
 echo "\nSuccess. Wrote {$p}REFRESH_TOKEN to .env.\n";
 echo "Granted scopes: $grantedScope\n";

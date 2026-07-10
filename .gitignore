@@ -24,3 +24,5 @@ sources/twitter/*.zip
 # Raw credential dumps copied out of the X developer portal (Client ID/Secret,
 # access/refresh tokens). Secret, never committed.
 sources/twitter/oauth2-*.txt
+sources/twitter/.twitter.lock
+sources/twitter/refresh_audit.log
