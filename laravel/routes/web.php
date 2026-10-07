@@ -51,20 +51,24 @@ Route::middleware('auth', '2fa')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    Route::post('/invite-codes/generate-invite-codes', [InviteCodeController::class, 'generateInviteCodes'])->name('generate-invite-codes');
-    Route::post('/invite-codes/revoke-unused-invite-codes', [InviteCodeController::class, 'revokeUnusedInviteCodes'])->name('revoke-unused-invite-codes');
-    Route::get('/invite-codes', [InviteCodeController::class, 'index'])->name('invite-codes-index');
-    Route::get('/invite-codes/data', [InviteCodeController::class, 'data'])->name('invite-codes-data');
+    // Admin-only routes. The middleware gates the whole group so a new route
+    // added here cannot be exposed by forgetting a per-controller check.
+    Route::middleware('admin')->group(function () {
+        Route::post('/invite-codes/generate-invite-codes', [InviteCodeController::class, 'generateInviteCodes'])->name('generate-invite-codes');
+        Route::post('/invite-codes/revoke-unused-invite-codes', [InviteCodeController::class, 'revokeUnusedInviteCodes'])->name('revoke-unused-invite-codes');
+        Route::get('/invite-codes', [InviteCodeController::class, 'index'])->name('invite-codes-index');
+        Route::get('/invite-codes/data', [InviteCodeController::class, 'data'])->name('invite-codes-data');
 
-    Route::get('/messages', [MessagesController::class, 'index'])->name('messages.index');
-    Route::get('/messages/data', [MessagesController::class, 'data'])->name('messages.data');
-    Route::get('/messages/filter-options', [MessagesController::class, 'filterOptions'])->name('messages.filter-options');
-    Route::post('/messages/{message}/delete', [MessagesController::class, 'destroy'])->name('messages.destroy');
+        Route::get('/messages', [MessagesController::class, 'index'])->name('messages.index');
+        Route::get('/messages/data', [MessagesController::class, 'data'])->name('messages.data');
+        Route::get('/messages/filter-options', [MessagesController::class, 'filterOptions'])->name('messages.filter-options');
+        Route::post('/messages/{message}/delete', [MessagesController::class, 'destroy'])->name('messages.destroy');
 
-    Route::get('/users/', [UserController::class, 'list'])->name('users.list');
-    Route::get('/users/getUserData', [UserController::class, 'getUserData'])->name('users.data');
-    Route::post('/users/{userId}/ban', [UserController::class, 'banUser'])->name('users.ban');
-    Route::post('/users/{userId}/unban', [UserController::class, 'unbanUser'])->name('users.unban');
+        Route::get('/users/', [UserController::class, 'list'])->name('users.list');
+        Route::get('/users/getUserData', [UserController::class, 'getUserData'])->name('users.data');
+        Route::post('/users/{userId}/ban', [UserController::class, 'banUser'])->name('users.ban');
+        Route::post('/users/{userId}/unban', [UserController::class, 'unbanUser'])->name('users.unban');
+    });
 });
 
 require __DIR__.'/auth.php';
