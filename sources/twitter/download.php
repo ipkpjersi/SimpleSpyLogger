@@ -484,8 +484,11 @@ foreach ($accounts as $acct) {
     $tweetFailure = false;
 
     do {
+        // X rejects max_results outside 5-100 with HTTP 400. Pages can come back
+        // short while still carrying a next_token, so the remaining budget can
+        // drop below 5; clamp up to 5 (overshooting the cap by at most 4 tweets).
         $query = [
-            'max_results' => (string) min(100, $maxTweets - $fetched),
+            'max_results' => (string) max(5, min(100, $maxTweets - $fetched)),
             'tweet.fields' => 'created_at,public_metrics,entities,referenced_tweets,in_reply_to_user_id,lang,source,conversation_id',
         ];
         if ($sinceId !== null) {
