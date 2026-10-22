@@ -11,7 +11,7 @@
 
     <div class="py-12">
         <div class="max-w-full mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white dark:bg-gray-800 overflow-x-auto shadow-sm sm:rounded-lg">
+            <div class="bg-white dark:bg-gray-800 overflow-x-auto shadow-xs sm:rounded-lg">
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
                         All ingested messages across every source. Use the search box for a global filter; click column headers to sort. Pagination is server-side. Hover a message to preview it, or click it to open the full content.
@@ -96,7 +96,7 @@
                 }
                 const safe = esc(data);
                 return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer" '
-                    + 'class="ssl-open bg-blue-500 hover:bg-blue-700 text-white text-xs font-bold py-1 px-3 rounded inline-flex items-center gap-1" '
+                    + 'class="ssl-open bg-blue-500 hover:bg-blue-700 text-white text-xs font-bold py-1 px-3 rounded-sm inline-flex items-center gap-1" '
                     + 'title="' + safe + '">Open'
                     + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3" aria-hidden="true">'
                     + '<path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />'
@@ -127,7 +127,7 @@
             });
 
             function badge(text, classes) {
-                return '<span class="text-white px-2 py-0.5 rounded text-xs font-medium ' + classes + '">' + esc(text) + '</span>';
+                return '<span class="text-white px-2 py-0.5 rounded-sm text-xs font-medium ' + classes + '">' + esc(text) + '</span>';
             }
 
             const sourceColumn = 1;
@@ -226,7 +226,7 @@
                     {
                         data: null, name: 'actions', orderable: false, searchable: false, width: '90px',
                         render: function (row) {
-                            return '<button data-id="' + row.id + '" class="ssl-delete bg-red-500 hover:bg-red-700 text-white text-xs font-bold py-1 px-3 rounded">Delete</button>';
+                            return '<button data-id="' + row.id + '" class="ssl-delete bg-red-500 hover:bg-red-700 text-white text-xs font-bold py-1 px-3 rounded-sm">Delete</button>';
                         },
                     },
                 ],

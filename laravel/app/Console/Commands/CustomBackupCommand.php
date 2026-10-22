@@ -7,7 +7,7 @@ use Spatie\Backup\Commands\BackupCommand;
 class CustomBackupCommand extends BackupCommand
 {
     // Here we maintain the same signature but modify the default for --disable-notifications
-    protected $signature = 'backup:run {--filename=} {--only-db} {--db-name=*} {--only-files} {--only-to-disk=} {--disable-notifications=true} {--timeout=} {--tries=}';
+    protected $signature = 'backup:run {--filename=} {--filename-suffix=} {--only-db} {--db-name=*} {--only-files} {--only-to-disk=} {--exclude=*} {--destination-path=} {--disable-notifications=true} {--timeout=} {--tries=} {--config=}';
 
     protected $description = 'Run the spatie laravel-backup with notifications disabled by default. This is the recommended backup command.';
 

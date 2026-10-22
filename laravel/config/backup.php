@@ -110,7 +110,7 @@ return [
             /*
              * The filename prefix used for the backup zip file.
              */
-            'filename_prefix' => 'LaravelBreezeStarter-',
+            'filename_prefix' => 'SimpleSpyLogger-',
 
             /*
              * The disk names on which the backups will be stored.

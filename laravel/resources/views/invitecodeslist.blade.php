@@ -19,11 +19,11 @@
                     </button>
                 </div>
             </div>
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
+            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xs sm:rounded-lg">
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     <div class="mb-4">
-                        <button id="generateCodes" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-700 mb-2 mr-2">Generate New Codes</button>
-                        <button id="revokeCodes" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-700 mb-2 mr-2">Revoke Unused Codes</button>
+                        <button id="generateCodes" class="px-4 py-2 bg-blue-500 text-white rounded-sm hover:bg-blue-700 mb-2 mr-2">Generate New Codes</button>
+                        <button id="revokeCodes" class="px-4 py-2 bg-red-500 text-white rounded-sm hover:bg-red-700 mb-2 mr-2">Revoke Unused Codes</button>
                     </div>
                     <table id="inviteCodesTable" class="display">
                         <thead>

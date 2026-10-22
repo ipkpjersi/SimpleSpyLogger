@@ -10,7 +10,7 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
+            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xs sm:rounded-lg">
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     <table style="width:100%" id="userTable" class="display text-gray-900 dark:text-gray-100">
                         <thead>
@@ -52,9 +52,9 @@
                     let actions = '';
                     if(row.is_admin != 1) {
                         if(row.is_banned == 1) {
-                            actions += `<button data-user-id="${data.id}" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded unbanUser">Unban</button>`;
+                            actions += `<button data-user-id="${data.id}" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-sm unbanUser">Unban</button>`;
                         } else {
-                            actions += `<button data-user-id="${data.id}" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded banUser">Ban</button>`;
+                            actions += `<button data-user-id="${data.id}" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-sm banUser">Ban</button>`;
                         }
                     }
                     return actions;
