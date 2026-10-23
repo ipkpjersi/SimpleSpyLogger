@@ -5,7 +5,10 @@
  * Fetches the latest comments for the configured Reddit user(s) via the
  * JSON endpoint. As of 2026 Reddit returns HTTP 403 for anonymous requests
  * to these endpoints, so an authenticated browser session cookie
- * (REDDIT_SESSION_COOKIE) is required. Recommended to run no more than twice
+ * (REDDIT_SESSION_COOKIE) is required. Reddit also blocks plain curl by its
+ * TLS/HTTP2 fingerprint ("blocked by network security"), so requests go through
+ * fetch.py, which uses python3 + curl_cffi to impersonate Chrome
+ * (REDDIT_IMPERSONATE). Recommended to run no more than twice
  * a day to stay polite with Reddit's rate limits.
  *
  * Endpoints available by Reddit:
@@ -114,8 +117,12 @@ function load_env(string $path): array
     return $env;
 }
 
-function http_get(string $url, string $userAgent, string $cookie = ''): array
+function http_get(string $url, string $userAgent, string $cookie = '', string $impersonate = ''): array
 {
+    if ($impersonate !== '') {
+        return http_get_impersonated($url, $cookie, $impersonate);
+    }
+
     $ch = curl_init($url);
     $opts = [
         CURLOPT_RETURNTRANSFER => true,
@@ -141,6 +148,44 @@ function http_get(string $url, string $userAgent, string $cookie = ''): array
     return ['ok' => $code < 400, 'code' => $code, 'body' => (string) $resp, 'error' => null];
 }
 
+/**
+ * GET via fetch.py (python3 + curl_cffi) so the TLS/HTTP2 handshake matches a
+ * real Chrome. Reddit blocks plain curl by fingerprint regardless of cookie or
+ * headers. The impersonated client sends its own matching User-Agent, so
+ * REDDIT_USER_AGENT is not used on this path. The cookie is passed via the
+ * environment rather than argv to keep it out of the process list. Returns the
+ * same shape as http_get().
+ */
+function http_get_impersonated(string $url, string $cookie, string $impersonate): array
+{
+    $procEnv = getenv();
+    $procEnv['REDDIT_FETCH_COOKIE'] = $cookie;
+
+    $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $proc = proc_open(['python3', __DIR__.'/fetch.py', $url, $impersonate], $descriptors, $pipes, null, $procEnv);
+    if (! is_resource($proc)) {
+        return ['ok' => false, 'code' => 0, 'body' => null, 'error' => 'could not launch python3 fetch.py'];
+    }
+    $out = (string) stream_get_contents($pipes[1]);
+    $stderr = trim((string) stream_get_contents($pipes[2]));
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($proc);
+
+    $result = json_decode($out, true);
+    if (! is_array($result)) {
+        $detail = $stderr !== '' ? $stderr : mb_substr($out, 0, 300);
+
+        return ['ok' => false, 'code' => 0, 'body' => null, 'error' => 'fetch.py returned no JSON: '.$detail];
+    }
+    if (isset($result['error'])) {
+        return ['ok' => false, 'code' => 0, 'body' => null, 'error' => (string) $result['error']];
+    }
+    $code = (int) ($result['code'] ?? 0);
+
+    return ['ok' => $code > 0 && $code < 400, 'code' => $code, 'body' => (string) ($result['body'] ?? ''), 'error' => null];
+}
+
 // Quick end-to-end check of the alert channels without scraping or touching
 // the DB: `php download.php test-alert`. Fires send_alert() and reports which
 // channels delivered, so you can confirm email/Discord config before relying
@@ -163,6 +208,13 @@ if (in_array($argv[1] ?? '', ['test-alert', '--test-alert', 'test'], true)) {
 $skipDelay = in_array($argv[1] ?? '', ['no-delay', '--no-delay', 'now'], true);
 
 $userAgent = $env['REDDIT_USER_AGENT'] ?? 'SimpleSpyLogger-RedditScraper/1.0';
+
+// curl_cffi browser target used to impersonate Chrome's TLS fingerprint (see
+// fetch.py). Set REDDIT_IMPERSONATE=false to fall back to plain PHP curl.
+$impersonate = trim($env['REDDIT_IMPERSONATE'] ?? 'chrome');
+if (strtolower($impersonate) === 'false') {
+    $impersonate = '';
+}
 
 // refresh_cookie.php provides refreshRedditSessionCookie(); the actual refresh
 // is deferred until just before the first fetch (after the randomized start
@@ -285,9 +337,9 @@ foreach ($usernames as $username) {
     $url = 'https://www.reddit.com/user/'.urlencode($username)
         .'/comments.json?limit='.$perPage.'&sort=new&raw_json=1';
 
-    $resp = http_get($url, $userAgent, $sessionCookie);
+    $resp = http_get($url, $userAgent, $sessionCookie, $impersonate);
     if (! $resp['ok']) {
-        $err = $resp['error'] !== null ? 'curl: '.$resp['error'] : 'HTTP '.$resp['code'];
+        $err = $resp['error'] !== null ? 'fetch: '.$resp['error'] : 'HTTP '.$resp['code'];
         fwrite(STDERR, "$err for $url\n");
         $failures[] = [
             'username' => $username,
@@ -440,7 +492,7 @@ if ($failures) {
         }
     }
     if ($has403) {
-        $lines[] = 'Hint: HTTP 403 usually means REDDIT_SESSION_COOKIE has expired or been revoked. Grab a fresh reddit_session cookie from a logged-in browser and update .env.';
+        $lines[] = 'Hint: HTTP 403 usually means REDDIT_SESSION_COOKIE has expired or been revoked (grab a fresh reddit_session cookie from a logged-in browser and update .env), or, if the body says "blocked by network security", that Reddit is rejecting the request fingerprint (check REDDIT_IMPERSONATE and that curl_cffi is installed/up to date).';
         $lines[] = '';
     }
     foreach ($failures as $f) {
