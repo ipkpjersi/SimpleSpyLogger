@@ -2,14 +2,37 @@
 /**
  * SimpleSpyLogger - Reddit comment scraper
  *
- * Fetches the latest comments for the configured Reddit user(s) via the
- * JSON endpoint. As of 2026 Reddit returns HTTP 403 for anonymous requests
- * to these endpoints, so an authenticated browser session cookie
- * (REDDIT_SESSION_COOKIE) is required. Reddit also blocks plain curl by its
- * TLS/HTTP2 fingerprint ("blocked by network security"), so requests go through
- * fetch.py, which uses python3 + curl_cffi to impersonate Chrome
- * (REDDIT_IMPERSONATE). Recommended to run no more than twice
- * a day to stay polite with Reddit's rate limits.
+ * Fetches the latest comments for the configured Reddit user(s). As of 2026
+ * Reddit returns HTTP 403 for anonymous requests, so an authenticated session
+ * is required. Reddit also blocks plain curl by its TLS/HTTP2 fingerprint
+ * ("blocked by network security"). Two ways to fetch, chosen by REDDIT_FETCHER:
+ *
+ *   browser  Load the URL in a real headless Chrome on a dedicated profile that
+ *            is logged into Reddit (sources/browser/browser_fetch.py). Nothing is
+ *            faked and no cookie is copied, so neither the fingerprint block nor
+ *            cookie rotation applies. Log in once with:
+ *              python3 sources/browser/browser_fetch.py --login https://www.reddit.com/login
+ *   http     (default) Replay REDDIT_SESSION_COOKIE through fetch.py, which uses
+ *            python3 + curl_cffi to impersonate Chrome (REDDIT_IMPERSONATE), with
+ *            the cookie auto-refreshed from your main Chrome profile.
+ *
+ * Two response formats, chosen by REDDIT_FORMAT (parsers in reddit_parse.php);
+ * either works with either fetcher:
+ *
+ *   json  (default) /user/<name>/comments.json. Most complete.
+ *   html  The old-Reddit listing page, old.reddit.com/user/<name>/comments/.
+ *         Has no parent comment id, and the body is rendered HTML converted
+ *         back to markdown, so it can differ slightly from the json body.
+ *
+ * With json, a failed or unparseable response falls back to html for that
+ * user (REDDIT_HTML_FALLBACK, default on) and sends an alert saying so. The
+ * format can be switched at any time: each stored comment records which format
+ * its content came from (payload.content_source), and when a fetch is in the
+ * other format, edits are detected by Reddit's "last edited" time instead of by
+ * comparing text, so switching never records false edits.
+ *
+ * Recommended to run no more than twice a day to stay polite with Reddit's
+ * rate limits.
  *
  * Endpoints available by Reddit:
  * https://www.reddit.com/user/username.json
@@ -18,15 +41,24 @@
  * A Reddit comment is mapped as: subreddit -> container, post -> channel,
  * commenter -> author.
  *
- * Single request per user per run, returning the most recent
- * REDDIT_PER_PAGE comments (up to 100). No pagination; full historical
+ * Single request per user per run (two when falling back to html), returning
+ * the most recent REDDIT_PER_PAGE comments (up to 100). No pagination; full historical
  * backfill beyond the first page is not supported here.
  *
  * Usage:
  *   php download.php            normal run (randomized 60s-38m start delay)
  *   php download.php no-delay   fetch immediately, skip all delays (manual/test)
+ *   php download.php dry-run    fetch and compare as normal, but write nothing to
+ *                               the DB and send no alerts; prints what would be
+ *                               inserted/edited (e.g. to preview a REDDIT_FORMAT
+ *                               switch). Combine with no-delay in any order.
  *
- * Cron: before each run this scraper auto-refreshes REDDIT_SESSION_COOKIE from
+ * Cron (browser fetcher): no special environment is needed; the dedicated
+ * profile does not use the desktop keyring:
+ *
+ *   0 0,12 * * * /usr/bin/php /path/to/sources/reddit/download.php >/dev/null 2>&1
+ *
+ * Cron (http fetcher): before each run this scraper auto-refreshes REDDIT_SESSION_COOKIE from
  * the live Chrome profile (see refresh_cookie.php). That has to read the login
  * keyring (Secret Service / gnome-keyring), which a bare cron job cannot reach
  * because cron has no desktop-session environment. So the cron line MUST export
@@ -89,6 +121,8 @@ if ($cronLog !== '') {
 }
 
 require_once __DIR__.'/../notifier.php';
+require_once __DIR__.'/../browser/browser_fetch.php';
+require_once __DIR__.'/reddit_parse.php';
 
 function load_env(string $path): array
 {
@@ -186,6 +220,67 @@ function http_get_impersonated(string $url, string $cookie, string $impersonate)
     return ['ok' => $code > 0 && $code < 400, 'code' => $code, 'body' => (string) ($result['body'] ?? ''), 'error' => null];
 }
 
+function reddit_listing_url(string $username, string $format, int $perPage): string
+{
+    if ($format === 'html') {
+        // old.reddit.com explicitly, so the server-rendered listing is served
+        // whatever layout preference the logged-in account has.
+        return 'https://old.reddit.com/user/'.urlencode($username).'/comments/?limit='.$perPage.'&sort=new';
+    }
+
+    return 'https://www.reddit.com/user/'.urlencode($username).'/comments.json?limit='.$perPage.'&sort=new&raw_json=1';
+}
+
+/**
+ * Whether a fetched comment's content differs from the stored row.
+ *
+ * Same source format as the stored content: compare the text, which catches
+ * every edit. Different formats (stored from json and fetched as html, or the
+ * reverse): the bodies never match byte for byte because the html body is
+ * rendered markdown converted back, so comparing text would flag every comment
+ * as edited. Use Reddit's "last edited" time instead: changed when it is newer
+ * than the stored one, or when the comment has been deleted since. Rows stored
+ * before content_source existed came from json.
+ */
+function reddit_content_changed(array $existing, string $newContent, string $newSource, ?string $editedAt, bool $isDeleted): bool
+{
+    $stored = json_decode((string) ($existing['payload'] ?? ''), true);
+    $storedSource = is_array($stored) && isset($stored['content_source']) ? (string) $stored['content_source'] : 'json';
+    if ($storedSource === $newSource) {
+        return $newContent !== $existing['content'];
+    }
+    if ($isDeleted) {
+        return ! in_array($existing['content'], ['[deleted]', '[removed]'], true);
+    }
+    if ($editedAt === null) {
+        return false;
+    }
+    $storedEdited = $existing['source_edited_at'] !== null ? strtotime((string) $existing['source_edited_at']) : false;
+
+    return $storedEdited === false || strtotime($editedAt) > $storedEdited;
+}
+
+/**
+ * Alert lines for one user's failed fetch attempts.
+ *
+ * @param array{username: string, attempts: array<int, array{format: string, url: string, error: string, body_excerpt: string}>} $entry
+ * @return array<int, string>
+ */
+function reddit_alert_attempt_lines(array $entry): array
+{
+    $lines = [$entry['username'].':'];
+    foreach ($entry['attempts'] as $a) {
+        $lines[] = '  ['.$a['format'].'] URL:   '.$a['url'];
+        $lines[] = '  ['.$a['format'].'] Error: '.$a['error'];
+        if ($a['body_excerpt'] !== '') {
+            $lines[] = '  ['.$a['format'].'] Body excerpt: '.preg_replace('/\s+/', ' ', $a['body_excerpt']);
+        }
+    }
+    $lines[] = '';
+
+    return $lines;
+}
+
 // Quick end-to-end check of the alert channels without scraping or touching
 // the DB: `php download.php test-alert`. Fires send_alert() and reports which
 // channels delivered, so you can confirm email/Discord config before relying
@@ -203,11 +298,34 @@ if (in_array($argv[1] ?? '', ['test-alert', '--test-alert', 'test'], true)) {
     exit(in_array(true, $results, true) ? 0 : 1);
 }
 
-// Override for manual/test runs: skip the randomized human-like delays so the
-// scraper fetches immediately. Usage: php download.php no-delay
-$skipDelay = in_array($argv[1] ?? '', ['no-delay', '--no-delay', 'now'], true);
+// Overrides for manual/test runs, accepted in any order:
+//   no-delay  skip the randomized human-like delays and fetch immediately
+//   dry-run   no DB writes and no alerts; only report what would change
+$cliArgs = array_slice($argv, 1);
+$skipDelay = (bool) array_intersect($cliArgs, ['no-delay', '--no-delay', 'now']);
+$dryRun = (bool) array_intersect($cliArgs, ['dry-run', '--dry-run']);
 
 $userAgent = $env['REDDIT_USER_AGENT'] ?? 'SimpleSpyLogger-RedditScraper/1.0';
+
+// "browser" fetches through a real Chrome on a dedicated logged-in profile (see
+// sources/browser/browser_fetch.py); anything else keeps the cookie-replay path.
+$useBrowser = strtolower(trim($env['REDDIT_FETCHER'] ?? 'http')) === 'browser';
+$browserOpts = [
+    'profile' => $env['REDDIT_BROWSER_PROFILE'] ?? '',
+    'port' => $env['REDDIT_BROWSER_PORT'] ?? '',
+    'binary' => $env['REDDIT_BROWSER_BINARY'] ?? '',
+];
+
+// Response format: "json" (comments.json, the default and most complete) or
+// "html" (the old-Reddit listing page). With json, a failed or unparseable
+// response falls back to html unless REDDIT_HTML_FALLBACK=false.
+$format = strtolower(trim($env['REDDIT_FORMAT'] ?? 'json'));
+if (! in_array($format, ['json', 'html'], true)) {
+    fwrite(STDERR, "REDDIT_FORMAT must be json or html\n");
+    exit(1);
+}
+$htmlFallback = strtolower(trim($env['REDDIT_HTML_FALLBACK'] ?? 'true')) !== 'false';
+$formats = $format === 'json' && $htmlFallback ? ['json', 'html'] : [$format];
 
 // curl_cffi browser target used to impersonate Chrome's TLS fingerprint (see
 // fetch.py). Set REDDIT_IMPERSONATE=false to fall back to plain PHP curl.
@@ -301,7 +419,8 @@ sleep($startDelay);
 // 38 minutes ago at process start. Best-effort: falls back to the cookie stored
 // in .env if Chrome is closed mid write, the keyring is locked (logged out), or
 // the profile/cookie is missing.
-$freshCookie = refreshRedditSessionCookie($envPath, $env);
+// Not needed by the browser fetcher, which uses the profile's own login.
+$freshCookie = $useBrowser ? null : refreshRedditSessionCookie($envPath, $env);
 if ($freshCookie !== null && $freshCookie !== '') {
     $env['REDDIT_SESSION_COOKIE'] = $freshCookie;
 }
@@ -314,7 +433,7 @@ $sessionCookie = trim($env['REDDIT_SESSION_COOKIE'] ?? '');
 if ($sessionCookie !== '' && strpos($sessionCookie, '=') === false) {
     $sessionCookie = 'reddit_session='.$sessionCookie;
 }
-if ($sessionCookie === '') {
+if ($sessionCookie === '' && ! $useBrowser) {
     fwrite(STDERR, "Warning: REDDIT_SESSION_COOKIE is empty; Reddit requires an authenticated session and will likely return HTTP 403.\n");
 }
 
@@ -324,6 +443,7 @@ $totalInserted = 0;
 $totalUpdated = 0;
 $userIndex = 0;
 $failures = [];
+$fallbacks = [];
 
 foreach ($usernames as $username) {
     if ($userIndex++ > 0 && ! $skipDelay) {
@@ -334,36 +454,51 @@ foreach ($usernames as $username) {
         sleep($duration);
     }
 
-    $url = 'https://www.reddit.com/user/'.urlencode($username)
-        .'/comments.json?limit='.$perPage.'&sort=new&raw_json=1';
-
-    $resp = http_get($url, $userAgent, $sessionCookie, $impersonate);
-    if (! $resp['ok']) {
-        $err = $resp['error'] !== null ? 'fetch: '.$resp['error'] : 'HTTP '.$resp['code'];
+    // Try each format in order until one returns a parseable listing. With
+    // REDDIT_FORMAT=json and the html fallback on, a failed or unparseable
+    // comments.json response falls through to the old-Reddit page.
+    $attempts = [];
+    $comments = null;
+    $usedFormat = '';
+    foreach ($formats as $i => $fmt) {
+        if ($i > 0) {
+            $duration = $skipDelay ? 0 : random_int(5, 30);
+            echo "Reddit: $username - {$formats[$i - 1]} failed, trying $fmt in {$duration}s.\n";
+            sleep($duration);
+        }
+        $url = reddit_listing_url($username, $fmt, $perPage);
+        $resp = $useBrowser
+            ? browser_fetch($url, $browserOpts)
+            : http_get($url, $userAgent, $sessionCookie, $impersonate);
+        if ($resp['ok']) {
+            $comments = $fmt === 'json'
+                ? reddit_parse_json_listing((string) $resp['body'])
+                : reddit_parse_html_listing((string) $resp['body']);
+            if ($comments !== null) {
+                $usedFormat = $fmt;
+                break;
+            }
+            $err = $fmt === 'json' ? 'response is not a comments JSON listing' : 'page has no comment listing';
+        } else {
+            $err = $resp['error'] !== null ? 'fetch: '.$resp['error'] : 'HTTP '.$resp['code'];
+        }
         fwrite(STDERR, "$err for $url\n");
-        $failures[] = [
-            'username' => $username,
+        $attempts[] = [
+            'format' => $fmt,
             'url' => $url,
             'error' => $err,
             'body_excerpt' => $resp['body'] !== null ? mb_substr((string) $resp['body'], 0, 300) : '',
         ];
+    }
+    if ($comments === null) {
+        $failures[] = ['username' => $username, 'attempts' => $attempts];
         continue;
     }
-
-    $data = json_decode($resp['body'], true);
-    if (! is_array($data)) {
-        fwrite(STDERR, "JSON parse failure for $url\n");
-        $failures[] = [
-            'username' => $username,
-            'url' => $url,
-            'error' => 'JSON parse failure',
-            'body_excerpt' => mb_substr((string) $resp['body'], 0, 300),
-        ];
-        continue;
+    if ($attempts) {
+        $fallbacks[] = ['username' => $username, 'attempts' => $attempts];
     }
-    $children = $data['data']['children'] ?? [];
-    if (! is_array($children) || ! $children) {
-        echo "Reddit: $username - 0 comments fetched, 0 new.\n";
+    if (! $comments) {
+        echo "Reddit: $username - 0 comments fetched ($usedFormat), 0 new.\n";
         continue;
     }
 
@@ -371,64 +506,62 @@ foreach ($usernames as $username) {
     $insertedForUser = 0;
     $updatedForUser = 0;
 
-    foreach ($children as $child) {
-        if (($child['kind'] ?? null) !== 't1' || empty($child['data']['id'])) {
-            continue;
-        }
-        $c = $child['data'];
+    foreach ($comments as $c) {
         $fetched++;
 
         $externalId = $host.':t1_'.$c['id'];
 
-        $parentId = $c['parent_id'] ?? null;
+        $parentId = $c['parent_id'];
         $referenced = null;
         if (is_string($parentId) && strpos($parentId, 't1_') === 0) {
             $referenced = $host.':'.$parentId;
         }
 
-        $editedAt = null;
-        if (isset($c['edited']) && is_numeric($c['edited'])) {
-            $editedAt = date('Y-m-d H:i:s', (int) $c['edited']);
-        }
+        $editedAt = $c['edited'] !== null ? date('Y-m-d H:i:s', $c['edited']) : null;
 
-        $isDeleted = (($c['author'] ?? '') === '[deleted]')
+        $isDeleted = ($c['author'] === '[deleted]')
             || in_array($c['body'] ?? '', ['[deleted]', '[removed]'], true);
 
         $payload = json_encode([
-            'permalink' => $c['permalink'] ?? null,
-            'score' => $c['score'] ?? null,
-            'controversiality' => $c['controversiality'] ?? null,
-            'distinguished' => $c['distinguished'] ?? null,
-            'stickied' => $c['stickied'] ?? null,
-            'subreddit_type' => $c['subreddit_type'] ?? null,
-            'subreddit_id' => $c['subreddit_id'] ?? null,
-            'link_id' => $c['link_id'] ?? null,
-            'link_permalink' => $c['link_permalink'] ?? null,
+            'permalink' => $c['permalink'],
+            'score' => $c['score'],
+            'controversiality' => $c['controversiality'],
+            'distinguished' => $c['distinguished'],
+            'stickied' => $c['stickied'],
+            'subreddit_type' => $c['subreddit_type'],
+            'subreddit_id' => $c['subreddit_id'],
+            'link_id' => $c['link_id'],
+            'link_permalink' => $c['link_permalink'],
+            // Which response format the content came from; see
+            // reddit_content_changed() for why edit detection needs it.
+            'content_source' => $c['content_source'],
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-        $newContent = $c['body'] ?? null;
+        $newContent = $c['body'];
         $deletedAt = $isDeleted ? $capturedAt : null;
 
         try {
             $lookup->execute([':source' => 'reddit', ':external_id' => $externalId]);
             $existing = $lookup->fetch(PDO::FETCH_ASSOC);
 
-            if ($existing === false) {
+            if ($existing === false && $dryRun) {
+                $insertedForUser++;
+            } elseif ($existing === false) {
                 $insert->execute([
                     ':source' => 'reddit',
                     ':external_id' => $externalId,
-                    ':container_external_id' => $c['subreddit_id'] ?? null,
-                    ':container_name' => $c['subreddit'] ?? null,
-                    ':channel_external_id' => $c['link_id'] ?? null,
-                    ':channel_name' => $c['link_title'] ?? null,
+                    ':container_external_id' => $c['subreddit_id'],
+                    ':container_name' => $c['subreddit'],
+                    ':channel_external_id' => $c['link_id'],
+                    ':channel_name' => $c['link_title'],
                     ':visibility' => 'public',
-                    ':author_external_id' => $c['author_fullname'] ?? null,
-                    ':author_username' => (string) ($c['author'] ?? ''),
+                    ':author_external_id' => $c['author_fullname'],
+                    ':author_username' => $c['author'],
                     ':author_display_name' => null,
                     ':author_bot' => 0,
                     ':content' => $newContent,
                     ':referenced_external_id' => $referenced,
-                    ':sent_at' => isset($c['created_utc']) ? date('Y-m-d H:i:s', (int) $c['created_utc']) : null,
+                    ':sent_at' => $c['created_utc'] !== null ? date('Y-m-d H:i:s', $c['created_utc']) : null,
                     ':source_edited_at' => $editedAt,
                     ':deleted_at' => $deletedAt,
                     ':captured_at' => $capturedAt,
@@ -437,7 +570,12 @@ foreach ($usernames as $username) {
                     ':updated_at' => $capturedAt,
                 ]);
                 $insertedForUser += $insert->rowCount();
-            } elseif ($newContent !== null && $newContent !== $existing['content']) {
+            } elseif ($newContent !== null && reddit_content_changed($existing, $newContent, $c['content_source'], $editedAt, $isDeleted)) {
+                if ($dryRun) {
+                    echo "Reddit: (dry run) would record an edit for comment {$c['id']}.\n";
+                    $updatedForUser++;
+                    continue;
+                }
                 $pdo->beginTransaction();
                 try {
                     $revision->execute([
@@ -468,41 +606,61 @@ foreach ($usernames as $username) {
         }
     }
 
-    echo "Reddit: $username - $fetched comments fetched, $insertedForUser new, $updatedForUser edited.\n";
+    echo "Reddit: $username - $fetched comments fetched ($usedFormat), $insertedForUser new, $updatedForUser edited.\n";
     $totalInserted += $insertedForUser;
     $totalUpdated += $updatedForUser;
+}
+
+if ($dryRun) {
+    echo "Reddit: (dry run) would insert $totalInserted new comments, $totalUpdated edited total. Nothing was written.\n";
+    foreach ($fallbacks as $f) {
+        echo "Reddit: (dry run) {$f['username']} needed the html fallback; would send the fallback alert.\n";
+    }
+    foreach ($failures as $f) {
+        echo "Reddit: (dry run) {$f['username']} failed in every format; would send the failure alert.\n";
+    }
+    exit($failures && count($failures) === count($usernames) ? 1 : 0);
 }
 
 $summary = "Reddit: inserted $totalInserted new comments, $totalUpdated edited total.";
 echo $summary."\n";
 log_import_summary($summary);
 
+if ($fallbacks) {
+    $subject = 'SimpleSpyLogger reddit scraper: comments.json failed, used the HTML fallback for '
+        .count($fallbacks).'/'.count($usernames).' users';
+    $lines = ["comments.json did not work on $capturedAt, but the old-Reddit HTML page did, so these users' comments were still captured:", ''];
+    foreach ($fallbacks as $f) {
+        $lines = array_merge($lines, reddit_alert_attempt_lines($f));
+    }
+    $lines[] = 'If this keeps happening, the .json endpoint may be gone: set REDDIT_FORMAT=html in sources/reddit/.env to stop requesting it.';
+    send_alert($env, $subject, implode("\n", $lines));
+}
+
 if ($failures) {
     $total = count($usernames);
     $failed = count($failures);
     $subject = "SimpleSpyLogger reddit scraper: $failed/$total users failed to fetch";
     $lines = ["$failed of $total users failed to fetch on $capturedAt:", ''];
-    // A run of 403s almost always means the authenticated session cookie has
-    // expired or been revoked; call that out so the fix is obvious.
+    // A run of 403s almost always means the authenticated session has expired
+    // or been revoked; call that out so the fix is obvious.
     $has403 = false;
     foreach ($failures as $f) {
-        if (strpos($f['error'], 'HTTP 403') !== false) {
-            $has403 = true;
-            break;
+        foreach ($f['attempts'] as $a) {
+            if (strpos($a['error'], 'HTTP 403') !== false) {
+                $has403 = true;
+            }
         }
     }
-    if ($has403) {
+    if ($has403 && $useBrowser) {
+        $lines[] = 'Hint: HTTP 403 with the browser fetcher usually means the dedicated Chrome profile is no longer logged into Reddit. Log in again with: python3 sources/browser/browser_fetch.py --login https://www.reddit.com/login (add --profile if REDDIT_BROWSER_PROFILE is set).';
+        $lines[] = '';
+    } elseif ($has403) {
         $lines[] = 'Hint: HTTP 403 usually means REDDIT_SESSION_COOKIE has expired or been revoked (grab a fresh reddit_session cookie from a logged-in browser and update .env), or, if the body says "blocked by network security", that Reddit is rejecting the request fingerprint (check REDDIT_IMPERSONATE and that curl_cffi is installed/up to date).';
         $lines[] = '';
     }
     foreach ($failures as $f) {
-        $lines[] = $f['username'].':';
-        $lines[] = '  URL:   '.$f['url'];
-        $lines[] = '  Error: '.$f['error'];
-        if ($f['body_excerpt'] !== '') {
-            $lines[] = '  Body excerpt: '.preg_replace('/\s+/', ' ', $f['body_excerpt']);
-        }
-        $lines[] = '';
+        $lines = array_merge($lines, reddit_alert_attempt_lines($f));
     }
     send_alert($env, $subject, implode("\n", $lines));
     exit($failed === $total ? 1 : 0);

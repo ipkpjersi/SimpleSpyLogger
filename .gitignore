@@ -26,3 +26,8 @@ sources/twitter/*.zip
 sources/twitter/oauth2-*.txt
 sources/twitter/.twitter.lock
 sources/twitter/refresh_audit.log
+
+# Dedicated Chrome profile used by sources/browser/browser_fetch.py. Holds live
+# site logins (session cookies), so it is never committed.
+sources/browser/profile/
+sources/browser/*.lock
