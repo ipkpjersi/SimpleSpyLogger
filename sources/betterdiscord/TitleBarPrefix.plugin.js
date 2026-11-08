@@ -2,7 +2,7 @@
  * @name TitleBarPrefix
  * @description Injects a configurable prefix (default "BetterDiscord - ") into the Discord window titlebar.
  * @author ken
- * @version 4.2.0
+ * @version 4.2.1
  */
 module.exports = class TitleBarPrefix {
     constructor(meta) {
@@ -33,42 +33,20 @@ module.exports = class TitleBarPrefix {
         this.warned.delete(key);
     }
 
-    // Find the titlebar's title-text element. Discord renders the title inside
-    // an element whose hashed class we resolve from the Webpack class module
-    // (TitleBarNew exports "title", e.g. "title_c38106"; older builds expose a
-    // "titleBar" class). The hash changes per build, so we never hardcode it.
+    // Find the titlebar's title-text element. Webpack filters on the titlebar's
+    // class names stopped matching, and the hash suffix changes per build (e.g.
+    // "title_3zSH5d"), so locate it from the DOM instead: the window titlebar is
+    // the "bar_<hash>" element containing both "title_<hash>" and
+    // "trailing_<hash>" with the same hash. Other "bar_" elements, such as the
+    // system bar or the unread mentions bar, do not have both.
     findTitleElement() {
-        const { Webpack } = this.api;
-
-        const newMod = Webpack.getModule(
-            (m) => m && typeof m.bar === "string" && typeof m.title === "string" && typeof m.trailing === "string"
-        );
-        const oldMod = Webpack.getModule((m) => m && typeof m.titleBar === "string");
-
-        // Warn if Discord changed the titlebar's Webpack module shape, since
-        // that is the most likely thing to break on a future client update.
-        if (!newMod && !oldMod) {
-            this.warnOnce(
-                "webpack-shape",
-                "could not find the titlebar module - Discord's client may have changed. The plugin needs an update."
-            );
-            return null;
+        for (const bar of document.querySelectorAll('[class^="bar_"], [class*=" bar_"]')) {
+            const barClass = Array.from(bar.classList).find((c) => c.startsWith("bar_"));
+            const hash = barClass.slice("bar_".length);
+            const title = bar.querySelector("." + CSS.escape("title_" + hash));
+            if (title && bar.querySelector("." + CSS.escape("trailing_" + hash))) return title;
         }
-        this.clearWarn("webpack-shape");
-
-        const cls = (newMod && newMod.title) || (oldMod && oldMod.titleBar);
-        const el = cls ? document.querySelector("." + cls.split(" ")[0]) : null;
-
-        // The module was found but its class is not in the DOM (different
-        // window, not rendered yet, or markup changed). Stay quiet during normal
-        // transient states; only warn if it never resolves on start.
-        if (!el) {
-            this.warnOnce("dom-missing", "found the titlebar module but not its element in the page - markup may have changed.");
-            return null;
-        }
-        this.clearWarn("dom-missing");
-
-        return el;
+        return null;
     }
 
     // Insert (or update) our label as the first child of the title element.
@@ -122,6 +100,14 @@ module.exports = class TitleBarPrefix {
         this.observer.observe(document.body, { childList: true, subtree: true });
 
         this.injectLabel();
+
+        // Discord may not have rendered the titlebar yet when the plugin starts,
+        // so only warn if it still has not appeared after a grace period.
+        this.missingCheck = setTimeout(() => {
+            if (!document.getElementById(this.nodeId)) {
+                this.warnOnce("titlebar-missing", "could not find the titlebar - Discord's markup may have changed. The plugin needs an update.");
+            }
+        }, 15000);
     }
 
     stop() {
@@ -129,6 +115,7 @@ module.exports = class TitleBarPrefix {
             this.observer.disconnect();
             this.observer = null;
         }
+        clearTimeout(this.missingCheck);
         this.removeLabel();
     }
 
