@@ -31,3 +31,12 @@ sources/twitter/refresh_audit.log
 # site logins (session cookies), so it is never committed.
 sources/browser/profile/
 sources/browser/*.lock
+
+# Dedicated Chrome profile and probe output for sources/discord_web/. The
+# profile holds a live Discord login; the report lists server names and ids.
+sources/discord_web/profile/
+sources/discord_web/*.lock
+sources/discord_web/probe_*
+
+# Python bytecode (gateway_probe.py imports sources/browser/browser_fetch.py).
+__pycache__/
