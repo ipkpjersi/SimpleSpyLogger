@@ -21,6 +21,10 @@ sources/twitter/.read_ledger.json
 # never committed; point import_archive.php at them locally instead.
 sources/twitter/*.zip
 
+# Reddit account data exports fed to sources/reddit/import_export.php. They hold
+# DMs, IP logs and the account email, so they are never committed either.
+sources/reddit/*.zip
+
 # Raw credential dumps copied out of the X developer portal (Client ID/Secret,
 # access/refresh tokens). Secret, never committed.
 sources/twitter/oauth2-*.txt

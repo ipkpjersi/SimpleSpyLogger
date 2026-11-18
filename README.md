@@ -10,7 +10,7 @@ SimpleSpyLogger/
   laravel/                  # Laravel app (based on laravel-breeze-starter): API + migrations + models
   sources/                  # One subfolder per agent. Folder name describes the implementation,
     betterdiscord/          #   not the `source` column value.
-    reddit/                 # PHP scraper (writes to the DB directly via PDO)
+    reddit/                 # PHP scraper (writes to the DB directly via PDO) + data-export import
     lemmy/                  # PHP scraper
     rscplus/                # PHP scraper
     twitter/                # PHP scraper (OAuth2 API top-up + archive import)
@@ -155,8 +155,16 @@ authenticated browser session cookie (`REDDIT_SESSION_COOKIE`) is required; the 
 can auto-refresh it from the live Chrome profile (`refresh_cookie.php`) before each run,
 which is why its cron line needs the desktop D-Bus session exported (see the header comment
 in `download.php`). Mapping: subreddit -> container, post -> channel, commenter -> author.
-Single request per user per run (most recent `REDDIT_PER_PAGE` comments, up to 100; no
-historical backfill).
+Single request per user per run (most recent `REDDIT_PER_PAGE` comments, up to 100).
+
+Older history comes from Reddit's account data export (reddit.com/settings/data-request):
+
+- `import_export.php` - backfill from the export zips (gitignored, kept in `sources/reddit/`):
+  comments, posts, inbox PMs and chat. Comments use the scraper's ids, so they merge with
+  scraped rows. Supports `dry-run`.
+- `backfill_titles.php` - fills in the post titles and subreddit ids the export lacks, from
+  the old-Reddit `by_id` page. `by_id` skips deleted posts; `per-post` mode fetches those
+  one at a time. Safe to re-run.
 
 ### Lemmy (PHP scraper) - included
 
