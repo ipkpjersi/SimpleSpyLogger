@@ -16,7 +16,8 @@ older history has to come back from Reddit's data export.
 - [x] Back up first with the backup script, run the import, then compare counts.
       2026-11-17: 67,394 rows imported on top of 921 scraped; all 609 overlapping
       comments matched, and the 312 rows newer than the export were left alone.
-      2026-11-18: a third (unscraped) account's export added 274 more rows.
+      2026-11-18: exports from two more (unscraped) accounts added 274 and
+      1,672 rows.
 - [x] Fill in the post titles the export lacks: `sources/reddit/backfill_titles.php`.
 
 ## Reddit scraper gaps found while comparing against the export
